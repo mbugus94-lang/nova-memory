@@ -1,389 +1,400 @@
 """
-Nova Memory 2.0 - Real-Time Fine-Tuning Engine
+Nova Memory 2.0 — Real-Time Fine-Tuning Engine
 
-This module implements Brian Roemmele's innovation:
-- AI models that learn during conversations
-- Modifying neural weights dynamically (1,000+ backprop updates/10s)
-- Continuous adaptation without RAG
+Implements lightweight in-process learning:
+- Cosine-similarity memory retrieval using numpy (no heavy ML deps required)
+- Optional PyTorch neural fine-tuning when torch is available
+- Graceful fallback to numpy-only mode when torch is not installed
+- Interaction history tracking with performance metrics
+
+The engine is intentionally dependency-light so it works in any Python 3.9+
+environment.  Install torch separately to unlock the neural fine-tuning path.
 """
 
-import os
 import json
-import numpy as np
-import torch
-import torch.nn as nn
-import torch.optim as optim
+import logging
+import os
 from datetime import datetime
-from typing import Dict, List, Optional, Tuple
 from pathlib import Path
+from typing import Dict, List, Optional, Tuple
+
+import numpy as np
+
+logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# Optional torch import — graceful fallback
+# ---------------------------------------------------------------------------
+try:
+    import torch
+    import torch.nn as nn
+    import torch.optim as optim
+    _TORCH_AVAILABLE = True
+except ImportError:
+    _TORCH_AVAILABLE = False
+    logger.info(
+        "PyTorch not installed — FineTuningEngine will run in numpy-only mode. "
+        "Install torch to enable neural fine-tuning."
+    )
+
+
+# ---------------------------------------------------------------------------
+# Numpy-only embedding helpers
+# ---------------------------------------------------------------------------
+
+def _embed_text_numpy(text: str, hidden_size: int = 128) -> np.ndarray:
+    """
+    Produce a deterministic pseudo-embedding from raw text.
+
+    Uses character n-gram hashing into a fixed-size float32 vector.
+    This is intentionally simple — replace with a real sentence encoder
+    (e.g. sentence-transformers) for production use.
+    """
+    words = text.lower().split()
+    embedding = np.zeros(hidden_size, dtype=np.float32)
+    for word in words:
+        idx = abs(hash(word)) % hidden_size
+        embedding[idx] += 1.0
+    norm = np.linalg.norm(embedding)
+    if norm > 0:
+        embedding /= norm
+    return embedding
+
+
+def _cosine_similarity(a: np.ndarray, b: np.ndarray) -> float:
+    """Return cosine similarity between two vectors."""
+    denom = (np.linalg.norm(a) * np.linalg.norm(b)) + 1e-10
+    return float(np.dot(a, b) / denom)
+
+
+# ---------------------------------------------------------------------------
+# Neural model (only instantiated when torch is available)
+# ---------------------------------------------------------------------------
+
+def _build_torch_model(config: Dict) -> "nn.Module":
+    """Build a small transformer-style memory network."""
+
+    class MemoryNetwork(nn.Module):
+        def __init__(self, cfg):
+            super().__init__()
+            h = cfg["hidden_size"]
+            self.input_proj = nn.Linear(h, h)
+            self.layers = nn.ModuleList([
+                nn.TransformerEncoderLayer(
+                    d_model=h,
+                    nhead=min(4, h // 32) or 1,
+                    dim_feedforward=h * 4,
+                    dropout=cfg["dropout"],
+                    batch_first=True,
+                )
+                for _ in range(cfg["num_layers"])
+            ])
+            self.output = nn.Linear(h, 1)
+
+        def forward(self, x):
+            x = self.input_proj(x)
+            for layer in self.layers:
+                x = layer(x)
+            x = x.mean(dim=1)
+            return self.output(x)
+
+    return MemoryNetwork(config)
+
+
+# ---------------------------------------------------------------------------
+# Main engine
+# ---------------------------------------------------------------------------
 
 class FineTuningEngine:
     """
-    Real-time fine-tuning engine that modifies neural weights during conversations
+    Real-time fine-tuning engine for AI agent interactions.
+
+    In *numpy mode* (default when torch is absent) the engine stores
+    embeddings and retrieves memories via cosine similarity without any
+    gradient updates.
+
+    In *torch mode* (when torch is installed) the engine additionally
+    performs online gradient descent on a small transformer network,
+    adjusting weights based on user feedback signals.
     """
 
+    _MODEL_CONFIGS = {
+        "small":  {"hidden_size": 128, "num_layers": 2, "dropout": 0.1},
+        "medium": {"hidden_size": 256, "num_layers": 3, "dropout": 0.2},
+        "large":  {"hidden_size": 512, "num_layers": 4, "dropout": 0.3},
+    }
+
     def __init__(self, model_size: str = "small"):
-        """
-        Initialize fine-tuning engine
+        if model_size not in self._MODEL_CONFIGS:
+            raise ValueError(f"model_size must be one of {list(self._MODEL_CONFIGS)}")
 
-        Args:
-            model_size: 'small', 'medium', or 'large'
-        """
         self.model_size = model_size
-        self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        self.config = self._MODEL_CONFIGS[model_size]
+        self.hidden_size: int = self.config["hidden_size"]
 
-        # Model configuration
-        self.config = self._get_config(model_size)
+        # Memory store (shared between numpy and torch modes)
+        self.memory_texts: List[Dict] = []
+        self.memory_embeddings: List[np.ndarray] = []
+        self.training_history: List[Dict] = []
 
-        # Initialize model
-        self.model = self._initialize_model()
-        self.model.to(self.device)
+        # Torch components (None when torch unavailable)
+        self._model = None
+        self._optimizer = None
+        self._device = None
 
-        # Optimizer
-        self.optimizer = optim.Adam(self.model.parameters(), lr=0.001)
+        if _TORCH_AVAILABLE:
+            self._device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+            self._model = _build_torch_model(self.config).to(self._device)
+            self._optimizer = optim.Adam(self._model.parameters(), lr=1e-3)
+            logger.info("FineTuningEngine: torch mode  device=%s", self._device)
+        else:
+            logger.info("FineTuningEngine: numpy-only mode")
 
-        # Training history
-        self.training_history = []
-
-        # Memory storage
-        self.memory_embeddings = []
-        self.memory_texts = []
-
-    def _get_config(self, model_size: str) -> Dict:
-        """Get model configuration based on size"""
-        configs = {
-            "small": {"hidden_size": 128, "num_layers": 2, "dropout": 0.2},
-            "medium": {"hidden_size": 256, "num_layers": 3, "dropout": 0.3},
-            "large": {"hidden_size": 512, "num_layers": 5, "dropout": 0.4}
-        }
-        return configs.get(model_size, configs["small"])
-
-    def _initialize_model(self) -> nn.Module:
-        """Initialize neural network for fine-tuning"""
-        class MemoryNetwork(nn.Module):
-            def __init__(self, config):
-                super().__init__()
-                self.hidden_size = config["hidden_size"]
-                self.num_layers = config["num_layers"]
-                self.dropout = config["dropout"]
-
-                # Input projection layer (for float embeddings)
-                # Input size matches embed_text output (hidden_size)
-                self.input_projection = nn.Linear(config["hidden_size"], self.hidden_size)
-
-                # Transformer-like layers
-                self.layers = nn.ModuleList([
-                    nn.TransformerEncoderLayer(
-                        d_model=self.hidden_size,
-                        nhead=4,
-                        dim_feedforward=self.hidden_size * 4,
-                        dropout=self.dropout,
-                        batch_first=True
-                    )
-                    for _ in range(self.num_layers)
-                ])
-
-                # Output layer
-                self.output = nn.Linear(self.hidden_size, 1)
-
-            def forward(self, x):
-                x = self.input_projection(x)
-                x = x.transpose(0, 1)  # Transformer expects (seq_len, batch, features)
-                for layer in self.layers:
-                    x = layer(x)
-                x = x.transpose(0, 1)
-                x = x.mean(dim=1)  # Pooling
-                return self.output(x)
-
-        return MemoryNetwork(self.config)
+    # ------------------------------------------------------------------
+    # Embedding
+    # ------------------------------------------------------------------
 
     def embed_text(self, text: str) -> np.ndarray:
+        """Return a fixed-size float32 embedding for the given text."""
+        return _embed_text_numpy(text, self.hidden_size)
+
+    # ------------------------------------------------------------------
+    # Memory storage / retrieval
+    # ------------------------------------------------------------------
+
+    def store_memory(
+        self, text: str, metadata: Optional[Dict] = None
+    ) -> Dict:
         """
-        Embed text using simple word-based embedding
+        Add a text snippet to the in-memory store.
 
-        Args:
-            text: Input text
-
-        Returns:
-            Embedding vector
+        Returns a dict with ``id`` and ``text``.
         """
-        # Simple word embedding (in production, use BERT/GPT embeddings)
-        words = text.lower().split()
-        embedding = np.zeros(self.config["hidden_size"])
-
-        for word in words:
-            # Generate pseudo-embedding based on word characteristics
-            word_hash = hash(word) % self.config["hidden_size"]
-            embedding[word_hash] += 1
-
-        # Normalize
-        norm = np.linalg.norm(embedding)
-        if norm > 0:
-            embedding = embedding / norm
-
-        return embedding
-
-    def fine_tune_on_interaction(self, interaction_data: Dict) -> Dict:
-        """
-        Fine-tune model on a single interaction
-
-        Args:
-            interaction_data: {
-                "user_message": str,
-                "agent_response": str,
-                "user_feedback": Optional[str],  # "positive", "negative", or None
-                "metadata": Dict
-            }
-
-        Returns:
-            Training statistics
-        """
-        user_msg = interaction_data["user_message"]
-        agent_response = interaction_data["agent_response"]
-        user_feedback = interaction_data.get("user_feedback")
-
-        # Get embeddings
-        user_embedding = self.embed_text(user_msg)
-        response_embedding = self.embed_text(agent_response)
-
-        # Create training example
-        # Positive feedback: user liked the response
-        # Negative feedback: user didn't like the response
-        if user_feedback == "positive":
-            target = torch.tensor([1.0], dtype=torch.float32, device=self.device)
-        elif user_feedback == "negative":
-            target = torch.tensor([0.0], dtype=torch.float32, device=self.device)
-        else:
-            # No feedback, use response embedding as target
-            target = torch.tensor([1.0], dtype=torch.float32, device=self.device)
-
-        # Prepare input - shape: (batch_size=1, seq_len=1, features=hidden_size)
-        input_tensor = torch.tensor(user_embedding, dtype=torch.float32, device=self.device).unsqueeze(0).unsqueeze(0)
-
-        # Forward pass
-        self.model.zero_grad()
-        output = self.model(input_tensor)
-        loss = nn.MSELoss()(output, target)
-
-        # Backpropagation
-        loss.backward()
-
-        # Update weights (this is the key - modifying neural weights in real-time)
-        self.optimizer.step()
-
-        # Store training history
-        training_stats = {
-            "timestamp": datetime.now().isoformat(),
-            "loss": float(loss.item()),
-            "learning_rate": self.optimizer.param_groups[0]["lr"],
-            "model_size": self.model_size,
-            "interaction_count": len(self.training_history) + 1
-        }
-
-        self.training_history.append(training_stats)
-
-        # Save fine-tuned model
-        self.save_model()
-
-        return training_stats
-
-    def fine_tune_batch(self, interactions: List[Dict]) -> Dict:
-        """
-        Fine-tune on a batch of interactions
-
-        Args:
-            interactions: List of interaction dictionaries
-
-        Returns:
-            Training statistics
-        """
-        total_loss = 0
-        num_interactions = len(interactions)
-
-        for interaction in interactions:
-            stats = self.fine_tune_on_interaction(interaction)
-            total_loss += stats["loss"]
-
-        avg_loss = total_loss / num_interactions if num_interactions > 0 else 0
-
-        return {
-            "timestamp": datetime.now().isoformat(),
-            "avg_loss": avg_loss,
-            "num_interactions": num_interactions,
-            "model_size": self.model_size,
-            "learning_rate": self.optimizer.param_groups[0]["lr"]
-        }
-
-    def store_memory(self, text: str, metadata: Optional[Dict] = None) -> Dict:
-        """
-        Store a memory for future fine-tuning
-
-        Args:
-            text: Memory text
-            metadata: Optional metadata
-
-        Returns:
-            Memory ID
-        """
-        memory_id = f"mem_{len(self.memory_texts)}_{datetime.now().strftime('%Y%m%d%H%M%S')}"
-
-        # Embed and store
+        mem_id = f"mem_{len(self.memory_texts)}_{datetime.utcnow().strftime('%Y%m%d%H%M%S')}"
         embedding = self.embed_text(text)
         self.memory_embeddings.append(embedding)
         self.memory_texts.append({
-            "id": memory_id,
+            "id": mem_id,
             "text": text,
             "embedding": embedding.tolist(),
             "metadata": metadata or {},
-            "created_at": datetime.now().isoformat()
+            "created_at": datetime.utcnow().isoformat(),
         })
-
-        return {"id": memory_id, "text": text}
+        return {"id": mem_id, "text": text}
 
     def retrieve_memories(self, query: str, top_k: int = 5) -> List[Dict]:
         """
-        Retrieve relevant memories using cosine similarity
+        Retrieve the top-k most relevant memories for a query.
+
+        Uses cosine similarity over stored embeddings.
+        """
+        if not self.memory_embeddings:
+            return []
+
+        query_emb = self.embed_text(query)
+        scored: List[Tuple[int, float]] = [
+            (i, _cosine_similarity(query_emb, emb))
+            for i, emb in enumerate(self.memory_embeddings)
+        ]
+        scored.sort(key=lambda x: x[1], reverse=True)
+        return [self.memory_texts[i] for i, _ in scored[:top_k]]
+
+    # ------------------------------------------------------------------
+    # Fine-tuning
+    # ------------------------------------------------------------------
+
+    def fine_tune_on_interaction(self, interaction_data: Dict) -> Dict:
+        """
+        Update the model on a single interaction.
 
         Args:
-            query: Query text
-            top_k: Number of memories to retrieve
+            interaction_data: dict with keys:
+                - ``user_message`` (str)
+                - ``agent_response`` (str)
+                - ``user_feedback`` (str | None): ``"positive"``, ``"negative"``, or ``None``
 
         Returns:
-            List of relevant memories
+            Training statistics dict.
         """
-        query_embedding = self.embed_text(query)
+        user_msg: str = interaction_data.get("user_message", "")
+        agent_resp: str = interaction_data.get("agent_response", "")
+        feedback: Optional[str] = interaction_data.get("user_feedback")
 
-        # Calculate similarity (cosine similarity)
-        similarities = []
-        for i, mem_embedding in enumerate(self.memory_embeddings):
-            similarity = np.dot(query_embedding, mem_embedding) / (
-                np.linalg.norm(query_embedding) * np.linalg.norm(mem_embedding) + 1e-10
-            )
-            similarities.append((i, similarity))
+        if _TORCH_AVAILABLE and self._model is not None:
+            loss_val = self._torch_update(user_msg, agent_resp, feedback)
+        else:
+            # Numpy-only: simulate a loss based on embedding similarity
+            u_emb = self.embed_text(user_msg)
+            r_emb = self.embed_text(agent_resp)
+            sim = _cosine_similarity(u_emb, r_emb)
+            target = 1.0 if feedback == "positive" else (0.0 if feedback == "negative" else 0.5)
+            loss_val = float(abs(target - sim))
 
-        # Sort by similarity
-        similarities.sort(key=lambda x: x[1], reverse=True)
+        stats = {
+            "timestamp": datetime.utcnow().isoformat(),
+            "loss": round(loss_val, 6),
+            "model_size": self.model_size,
+            "mode": "torch" if _TORCH_AVAILABLE else "numpy",
+            "interaction_count": len(self.training_history) + 1,
+        }
+        self.training_history.append(stats)
 
-        # Return top K
-        top_indices = [i for i, _ in similarities[:top_k]]
-        return [self.memory_texts[i] for i in top_indices]
+        # Persist model state if torch is available
+        if _TORCH_AVAILABLE:
+            self.save_model()
+
+        return stats
+
+    def _torch_update(
+        self, user_msg: str, agent_resp: str, feedback: Optional[str]
+    ) -> float:
+        """Perform one gradient step and return the scalar loss."""
+        assert _TORCH_AVAILABLE and self._model is not None
+
+        target_val = 1.0 if feedback == "positive" else (0.0 if feedback == "negative" else 1.0)
+        target = torch.tensor([[target_val]], dtype=torch.float32, device=self._device)
+
+        user_emb = self.embed_text(user_msg)
+        inp = torch.tensor(user_emb, dtype=torch.float32, device=self._device)
+        inp = inp.unsqueeze(0).unsqueeze(0)  # (1, 1, hidden_size)
+
+        self._model.zero_grad()
+        output = self._model(inp)
+        loss = nn.MSELoss()(output, target)
+        loss.backward()
+        self._optimizer.step()
+
+        return float(loss.item())
+
+    def fine_tune_batch(self, interactions: List[Dict]) -> Dict:
+        """Fine-tune on a list of interactions and return aggregate stats."""
+        if not interactions:
+            return {"avg_loss": 0.0, "num_interactions": 0}
+
+        losses = [self.fine_tune_on_interaction(i)["loss"] for i in interactions]
+        return {
+            "timestamp": datetime.utcnow().isoformat(),
+            "avg_loss": round(float(np.mean(losses)), 6),
+            "min_loss": round(float(np.min(losses)), 6),
+            "max_loss": round(float(np.max(losses)), 6),
+            "num_interactions": len(interactions),
+            "model_size": self.model_size,
+        }
+
+    # ------------------------------------------------------------------
+    # Persistence
+    # ------------------------------------------------------------------
 
     def save_model(self, path: Optional[str] = None):
-        """Save fine-tuned model"""
-        if path is None:
-            path = Path("models/nova_memory_2.0_finetuned.pt")
+        """Save model state and memory to disk."""
+        save_path = Path(path or "models/nova_memory_2.0_finetuned.pt")
+        save_path.parent.mkdir(parents=True, exist_ok=True)
 
-        Path(path).parent.mkdir(parents=True, exist_ok=True)
-
-        torch.save({
-            "model_state_dict": self.model.state_dict(),
+        checkpoint: Dict = {
             "config": self.config,
             "training_history": self.training_history,
             "memory_texts": self.memory_texts,
-            "memory_embeddings": self.memory_embeddings
-        }, path)
+            "memory_embeddings": [e.tolist() for e in self.memory_embeddings],
+        }
+
+        if _TORCH_AVAILABLE and self._model is not None:
+            checkpoint["model_state_dict"] = self._model.state_dict()
+            torch.save(checkpoint, save_path)
+        else:
+            # Save as JSON when torch is unavailable
+            json_path = save_path.with_suffix(".json")
+            with open(json_path, "w") as fh:
+                json.dump(checkpoint, fh)
 
     def load_model(self, path: str):
-        """Load fine-tuned model"""
-        checkpoint = torch.load(path, map_location=self.device)
+        """Load model state and memory from disk."""
+        load_path = Path(path)
 
-        self.model.load_state_dict(checkpoint["model_state_dict"])
-        self.config = checkpoint["config"]
+        if load_path.suffix == ".json" or not _TORCH_AVAILABLE:
+            json_path = load_path.with_suffix(".json")
+            if json_path.exists():
+                with open(json_path) as fh:
+                    checkpoint = json.load(fh)
+            else:
+                logger.warning("Model file not found: %s", json_path)
+                return
+        else:
+            checkpoint = torch.load(load_path, map_location=self._device)
+            if "model_state_dict" in checkpoint and self._model is not None:
+                self._model.load_state_dict(checkpoint["model_state_dict"])
+
+        self.config = checkpoint.get("config", self.config)
         self.training_history = checkpoint.get("training_history", [])
         self.memory_texts = checkpoint.get("memory_texts", [])
-        self.memory_embeddings = checkpoint.get("memory_embeddings", [])
+        self.memory_embeddings = [
+            np.array(e, dtype=np.float32)
+            for e in checkpoint.get("memory_embeddings", [])
+        ]
+        print(f"[OK] Model loaded  iterations={len(self.training_history)}  "
+              f"memories={len(self.memory_texts)}")
 
-        print(f"Loaded model with {len(self.training_history)} training iterations")
+    # ------------------------------------------------------------------
+    # Metrics
+    # ------------------------------------------------------------------
 
     def get_performance_metrics(self) -> Dict:
-        """Get performance metrics"""
+        """Return a summary of training performance."""
         if not self.training_history:
-            return {"status": "no_training_data"}
+            return {
+                "status": "no_training_data",
+                "total_iterations": 0,
+                "num_memories": len(self.memory_texts),
+            }
 
-        recent_history = self.training_history[-100:]  # Last 100 iterations
+        recent = self.training_history[-100:]
+        losses = [h["loss"] for h in recent]
 
         return {
             "status": "training_active",
+            "mode": "torch" if _TORCH_AVAILABLE else "numpy",
             "total_iterations": len(self.training_history),
-            "recent_loss": recent_history[-1]["loss"],
-            "avg_loss_100": np.mean([h["loss"] for h in recent_history]),
-            "learning_rate": recent_history[-1]["learning_rate"],
+            "recent_loss": round(recent[-1]["loss"], 6),
+            "avg_loss_100": round(float(np.mean(losses)), 6),
+            "min_loss_100": round(float(np.min(losses)), 6),
             "model_size": self.model_size,
-            "num_memories": len(self.memory_texts)
+            "num_memories": len(self.memory_texts),
         }
 
-# Demo and Testing
-if __name__ == "__main__":
-    print("Nova Memory 2.0 - Real-Time Fine-Tuning Engine")
-    print("=" * 60)
 
-    # Initialize engine
+# ---------------------------------------------------------------------------
+# Quick smoke-test
+# ---------------------------------------------------------------------------
+if __name__ == "__main__":
+    print("Nova Memory 2.0 — Real-Time Fine-Tuning Engine")
+    print("=" * 60)
+    print(f"Torch available: {_TORCH_AVAILABLE}")
+
     engine = FineTuningEngine(model_size="small")
 
-    # Simulate interactions
-    print("\n1. Storing initial memories...")
-    memories = [
-        "Patient has diabetes type 2",
-        "Patient allergic to penicillin",
-        "Patient prefers morning appointments",
-        "Patient needs blood test every 3 months",
-        "Patient's blood sugar levels are stable"
-    ]
+    # Store memories
+    for text in [
+        "Patient John Doe has diabetes type 2",
+        "Insulin dosage: 10 units twice daily",
+        "Last HbA1c: 6.8% — good control",
+    ]:
+        engine.store_memory(text)
 
-    for memory_text in memories:
-        engine.store_memory(memory_text)
+    # Retrieve
+    results = engine.retrieve_memories("insulin dosage", top_k=2)
+    print(f"\nTop-2 memories for 'insulin dosage':")
+    for r in results:
+        print(f"  {r['text']}")
 
-    print(f"✅ Stored {len(memories)} memories")
+    # Fine-tune
+    stats = engine.fine_tune_on_interaction({
+        "user_message": "What is the patient's current treatment?",
+        "agent_response": "Patient takes insulin twice daily.",
+        "user_feedback": "positive",
+    })
+    print(f"\nFine-tune stats: loss={stats['loss']}  mode={stats['mode']}")
 
-    # Simulate interactions with feedback
-    print("\n2. Fine-tuning on interactions...")
-
-    interactions = [
-        {
-            "user_message": "What's the patient's medical history?",
-            "agent_response": "The patient has diabetes type 2 and is allergic to penicillin.",
-            "user_feedback": "positive"
-        },
-        {
-            "user_message": "When should the next appointment be?",
-            "agent_response": "The patient prefers morning appointments and needs a blood test every 3 months.",
-            "user_feedback": "positive"
-        },
-        {
-            "user_message": "What's the patient's condition?",
-            "agent_response": "The patient has diabetes type 2.",
-            "user_feedback": "negative"  # Too brief
-        }
-    ]
-
-    for i, interaction in enumerate(interactions, 1):
-        stats = engine.fine_tune_on_interaction(interaction)
-        print(f"   Iteration {i}: Loss = {stats['loss']:.4f}")
-
-    # Get performance metrics
-    print("\n3. Performance metrics:")
+    # Metrics
     metrics = engine.get_performance_metrics()
-    print(f"   Status: {metrics['status']}")
-    print(f"   Total Iterations: {metrics['total_iterations']}")
-    print(f"   Recent Loss: {metrics['recent_loss']:.4f}")
-    print(f"   Avg Loss (100): {metrics['avg_loss_100']:.4f}")
-    print(f"   Number of Memories: {metrics['num_memories']}")
+    print(f"Metrics: {metrics}")
 
-    # Test retrieval
-    print("\n4. Testing memory retrieval:")
-    query = "What medications is the patient allergic to?"
-    retrieved = engine.retrieve_memories(query, top_k=3)
-
-    print(f"   Query: {query}")
-    print(f"   Retrieved {len(retrieved)} memories:")
-    for mem in retrieved:
-        print(f"   - {mem['text']}")
-
-    # Save model
-    print("\n5. Saving model...")
-    engine.save_model()
-    print("   Model saved to models/nova_memory_2.0_finetuned.pt")
-
-    print("\n✅ Fine-tuning engine demo complete!")
-    print("   This engine enables AI agents to learn during conversations")
-    print("   by modifying neural weights in real-time (1,000+ backprop updates/10s)")
+    print("\n[OK] Fine-tuning engine smoke test complete")
