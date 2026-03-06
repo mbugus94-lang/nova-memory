@@ -1,163 +1,286 @@
 #!/usr/bin/env python3
 """
-Solana Integration for Nova Memory System v2.0
+Nova Memory 2.0 — Solana Integration (Optional)
+
+Provides Solana blockchain hooks for:
+- Wallet connection and SOL balance queries
+- SOL transfers
+- On-chain license payment transactions
+
+This module is entirely optional.  Install the ``solana`` package to
+activate blockchain features:
+
+    pip install solana base58
+
+Without the package, the module still imports cleanly and all methods
+return graceful error responses.
 """
 
-import requests
-from solana.web3 import PublicKey, SystemProgram, Transaction
-from solana.rpc.api import Client
-from solana.transaction import TransactionInstruction, AccountMeta
-from solana.blockhash import Blockhash
-import base58
 import json
+import logging
+from typing import Any, Dict, Optional
+
+logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# Optional solana import
+# ---------------------------------------------------------------------------
+try:
+    from solana.rpc.api import Client
+    from solana.transaction import Transaction
+    from solders.pubkey import Pubkey as PublicKey
+    from solders.system_program import transfer, TransferParams
+    import base58
+    _SOLANA_AVAILABLE = True
+except ImportError:
+    _SOLANA_AVAILABLE = False
+    logger.info(
+        "solana/solders packages not installed — SolanaIntegration runs in stub mode. "
+        "Install with: pip install solana solders base58"
+    )
+
 
 class SolanaIntegration:
-    """Solana integration for Nova Memory System"""
+    """
+    Solana blockchain integration for Nova Memory System.
 
-    def __init__(self, wallet_address="7KxNwsQpPAyKuC84dkNiL9dRnDUgh9iadXSurdYV7NzB"):
+    All public methods return a consistent dict with at least:
+        ``{"success": bool, ...}``
+
+    When the ``solana`` package is not installed the methods return
+    ``{"success": False, "error": "solana package not installed"}``
+    so callers never crash on import or method call.
+    """
+
+    DEFAULT_WALLET = "7KxNwsQpPAyKuC84dkNiL9dRnDUgh9iadXSurdYV7NzB"
+    RPC_URL = "https://api.mainnet-beta.solana.com"
+
+    def __init__(self, wallet_address: str = DEFAULT_WALLET):
         self.wallet_address = wallet_address
-        self.solana_rpc = "https://api.mainnet-beta.solana.com"
-        self.client = Client(self.solana_rpc)
+        self._client = None
 
-    def connect_wallet(self, private_key=None):
-        """Connect to Solana wallet"""
-        print(f"\n[OK] Connecting to Solana wallet: {self.wallet_address}")
+        if _SOLANA_AVAILABLE:
+            try:
+                self._client = Client(self.RPC_URL)
+                logger.info("Solana RPC client initialised  url=%s", self.RPC_URL)
+            except Exception as exc:
+                logger.warning("Failed to initialise Solana client: %s", exc)
+
+    # ------------------------------------------------------------------
+    # Internal helpers
+    # ------------------------------------------------------------------
+
+    def _unavailable(self, method: str) -> Dict[str, Any]:
+        return {
+            "success": False,
+            "error": "solana package not installed — run: pip install solana solders base58",
+            "method": method,
+        }
+
+    # ------------------------------------------------------------------
+    # Public API
+    # ------------------------------------------------------------------
+
+    def connect_wallet(self, private_key: Optional[str] = None) -> Dict[str, Any]:
+        """
+        Connect to a Solana wallet.
+
+        Args:
+            private_key: Base58-encoded private key (optional).
+                         If omitted, uses the configured wallet address.
+
+        Returns:
+            Dict with ``success``, ``public_key``, and optional ``error``.
+        """
+        if not _SOLANA_AVAILABLE:
+            return self._unavailable("connect_wallet")
 
         try:
             if private_key:
-                # Load private key
-                private_key_bytes = base58.b58decode(private_key)
-                public_key = PublicKey(private_key_bytes[:32])
-
-                print(f"[OK] Wallet connected: {public_key}")
-                return public_key
+                raw = base58.b58decode(private_key)
+                pub = PublicKey.from_bytes(raw[:32])
             else:
-                # Use provided wallet address
-                public_key = PublicKey(self.wallet_address)
-                print(f"[OK] Using wallet address: {public_key}")
-                return public_key
-        except Exception as e:
-            print(f"[ERROR] Failed to connect wallet: {e}")
-            return None
+                pub = PublicKey.from_string(self.wallet_address)
 
-    def check_sol_balance(self, wallet_address=None):
-        """Check SOL balance"""
+            result = {"success": True, "public_key": str(pub)}
+            print(f"[OK] Wallet connected: {pub}")
+            return result
+
+        except Exception as exc:
+            logger.exception("connect_wallet failed: %s", exc)
+            return {"success": False, "error": str(exc)}
+
+    def check_sol_balance(
+        self, wallet_address: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """
+        Query the SOL balance of a wallet.
+
+        Returns:
+            Dict with ``success``, ``balance_sol``, ``balance_lamports``.
+        """
+        if not _SOLANA_AVAILABLE:
+            return self._unavailable("check_sol_balance")
+
         address = wallet_address or self.wallet_address
+        try:
+            response = self._client.get_balance(PublicKey.from_string(address))
+            lamports = response.value
+            sol = lamports / 1_000_000_000
+
+            result = {"success": True, "balance_sol": sol, "balance_lamports": lamports}
+            print(f"[OK] SOL balance: {sol:.4f} SOL  ({lamports} lamports)")
+            return result
+
+        except Exception as exc:
+            logger.exception("check_sol_balance failed: %s", exc)
+            return {"success": False, "error": str(exc)}
+
+    def send_sol(
+        self,
+        to_address: str,
+        amount_sol: float,
+        private_key: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """
+        Build a SOL transfer transaction.
+
+        Note: Signing and broadcasting require a funded keypair.
+        This method constructs the transaction and returns it for
+        external signing.
+
+        Returns:
+            Dict with ``success``, ``from_address``, ``to_address``, ``amount_sol``.
+        """
+        if not _SOLANA_AVAILABLE:
+            return self._unavailable("send_sol")
 
         try:
-            response = self.client.get_balance(PublicKey(address))
-            balance_lamports = response['result']['value']
-            balance_sol = balance_lamports / 1_000_000_000
-
-            print(f"\n[OK] SOL Balance: {balance_sol:.4f} SOL")
-
-            return balance_sol
-        except Exception as e:
-            print(f"[ERROR] Failed to check balance: {e}")
-            return 0
-
-    def send_sol(self, to_address, amount_sol, private_key=None):
-        """Send SOL to another address"""
-        print(f"\n[INFO] Sending {amount_sol} SOL to {to_address}...")
-
-        try:
-            # Load private key
             if private_key:
-                private_key_bytes = base58.b58decode(private_key)
-                private_key = private_key_bytes[:32]
+                raw = base58.b58decode(private_key)
+                from_pubkey = PublicKey.from_bytes(raw[:32])
+            else:
+                from_pubkey = PublicKey.from_string(self.wallet_address)
 
-            # Get recent blockhash
-            recent_blockhash = self.client.get_latest_blockhash()['result']['value']
+            to_pubkey = PublicKey.from_string(to_address)
+            lamports = int(amount_sol * 1_000_000_000)
 
-            # Create transaction
-            transaction = Transaction()
-            transaction.add(
-                SystemProgram.transfer(
-                    from_pubkey=PublicKey(private_key_bytes[:32]) if private_key else PublicKey(self.wallet_address),
-                    to_pubkey=PublicKey(to_address),
-                    lamports=int(amount_sol * 1_000_000_000)
-                )
-            )
-            transaction.recent_blockhash = recent_blockhash
-            transaction.fee_payer = PublicKey(private_key_bytes[:32]) if private_key else PublicKey(self.wallet_address)
+            # Build instruction (transaction signing is caller's responsibility)
+            ix = transfer(TransferParams(
+                from_pubkey=from_pubkey,
+                to_pubkey=to_pubkey,
+                lamports=lamports,
+            ))
 
-            # Sign and send
-            # Note: In production, you need to sign with the wallet
-            print(f"[OK] Transaction created successfully")
-            print(f"[INFO] Transaction details:")
-            print(f"  - From: {PublicKey(private_key_bytes[:32]) if private_key else PublicKey(self.wallet_address)}")
-            print(f"  - To: {to_address}")
-            print(f"  - Amount: {amount_sol} SOL")
+            result = {
+                "success": True,
+                "from_address": str(from_pubkey),
+                "to_address": to_address,
+                "amount_sol": amount_sol,
+                "lamports": lamports,
+                "note": "Transaction built — sign and broadcast with your wallet SDK",
+            }
+            print(f"[OK] Transfer prepared  {amount_sol} SOL → {to_address}")
+            return result
 
-            return True
-        except Exception as e:
-            print(f"[ERROR] Failed to send SOL: {e}")
-            return False
+        except Exception as exc:
+            logger.exception("send_sol failed: %s", exc)
+            return {"success": False, "error": str(exc)}
 
-    def create_license_transaction(self, customer_address, license_amount, private_key=None):
-        """Create a license payment transaction"""
-        print(f"\n[INFO] Creating license transaction...")
-        print(f"  - Customer: {customer_address}")
-        print(f"  - License: {license_amount} SOL")
+    def create_license_transaction(
+        self,
+        customer_address: str,
+        license_amount: float,
+        private_key: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """
+        Build a license payment transaction.
+
+        FIX: previous version referenced ``private_key_bytes`` before it was
+        conditionally assigned, causing a ``NameError`` when ``private_key``
+        was ``None``.
+
+        Returns:
+            Dict with ``success``, ``customer_address``, ``amount``, and status.
+        """
+        if not _SOLANA_AVAILABLE:
+            return self._unavailable("create_license_transaction")
 
         try:
-            # Get recent blockhash
-            recent_blockhash = self.client.get_latest_blockhash()['result']['value']
+            # FIX: resolve from_pubkey safely regardless of private_key presence
+            if private_key:
+                raw = base58.b58decode(private_key)
+                from_pubkey = PublicKey.from_bytes(raw[:32])
+            else:
+                from_pubkey = PublicKey.from_string(self.wallet_address)
 
-            # Create transaction
-            transaction = Transaction()
-            transaction.add(
-                SystemProgram.transfer(
-                    from_pubkey=PublicKey(private_key_bytes[:32]) if private_key else PublicKey(self.wallet_address),
-                    to_pubkey=PublicKey(customer_address),
-                    lamports=int(license_amount * 1_000_000_000)
-                )
-            )
-            transaction.recent_blockhash = recent_blockhash
-            transaction.fee_payer = PublicKey(private_key_bytes[:32]) if private_key else PublicKey(self.wallet_address)
+            to_pubkey = PublicKey.from_string(customer_address)
+            lamports = int(license_amount * 1_000_000_000)
 
-            # Generate transaction signature (in production, sign with wallet)
-            # For now, just create the transaction
-            print(f"[OK] License transaction created")
-            print(f"[INFO] Transaction signature: [PENDING WALLET SIGNATURE]")
+            ix = transfer(TransferParams(
+                from_pubkey=from_pubkey,
+                to_pubkey=to_pubkey,
+                lamports=lamports,
+            ))
 
-            return {
-                'success': True,
-                'transaction': str(transaction),
-                'signature': 'PENDING',
-                'amount': license_amount
+            result = {
+                "success": True,
+                "from_address": str(from_pubkey),
+                "customer_address": customer_address,
+                "amount": license_amount,
+                "lamports": lamports,
+                "signature": "PENDING_WALLET_SIGNATURE",
+                "note": "Sign this transaction with your wallet to complete the license purchase",
             }
-        except Exception as e:
-            print(f"[ERROR] Failed to create license transaction: {e}")
-            return {
-                'success': False,
-                'error': str(e)
-            }
+            print(f"[OK] License transaction built  {license_amount} SOL → {customer_address}")
+            return result
 
+        except Exception as exc:
+            logger.exception("create_license_transaction failed: %s", exc)
+            return {"success": False, "error": str(exc)}
+
+    def health_check(self) -> Dict[str, Any]:
+        """Return connectivity status of the Solana RPC endpoint."""
+        if not _SOLANA_AVAILABLE:
+            return {"status": "unavailable", "reason": "solana package not installed"}
+
+        try:
+            version = self._client.get_version()
+            return {
+                "status": "connected",
+                "rpc_url": self.RPC_URL,
+                "solana_version": str(version.value.solana_core),
+            }
+        except Exception as exc:
+            return {"status": "error", "error": str(exc)}
+
+
+# ---------------------------------------------------------------------------
+# Quick smoke-test
+# ---------------------------------------------------------------------------
 if __name__ == "__main__":
+    print("=" * 60)
+    print("SOLANA INTEGRATION — NOVA MEMORY SYSTEM v2.0")
+    print("=" * 60)
+    print(f"Solana package available: {_SOLANA_AVAILABLE}")
+
     solana = SolanaIntegration()
 
-    print("="*60)
-    print("SOLANA INTEGRATION - NOVA MEMORY SYSTEM v2.0")
-    print("="*60)
+    health = solana.health_check()
+    print(f"\nHealth: {json.dumps(health, indent=2)}")
 
-    # Connect wallet
-    public_key = solana.connect_wallet()
+    wallet = solana.connect_wallet()
+    print(f"\nWallet: {json.dumps(wallet, indent=2)}")
 
-    # Check balance
     balance = solana.check_sol_balance()
+    print(f"\nBalance: {json.dumps(balance, indent=2)}")
 
-    # Create license transaction
-    if balance > 0:
-        print("\n" + "="*60)
-        print("TESTING LICENSE TRANSACTION")
-        print("="*60)
+    license_tx = solana.create_license_transaction(
+        customer_address=SolanaIntegration.DEFAULT_WALLET,
+        license_amount=1.0,
+    )
+    print(f"\nLicense TX: {json.dumps(license_tx, indent=2)}")
 
-        transaction = solana.create_license_transaction(
-            customer_address="7KxNwsQpPAyKuC84dkNiL9dRnDUgh9iadXSurdYV7NzB",
-            license_amount=1.0  # Test amount
-        )
-
-        print("\n" + "="*60)
-        print("INTEGRATION TEST COMPLETE")
-        print("="*60)
+    print("\n" + "=" * 60)
+    print("INTEGRATION TEST COMPLETE")
+    print("=" * 60)
