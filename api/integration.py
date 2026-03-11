@@ -11,11 +11,15 @@ from contextlib import asynccontextmanager
 # Import advanced systems
 from core.advanced_features import init_nova_memory_advanced, get_nova_memory_advanced
 from api.advanced_routes import router as advanced_router
-from api.graphql_api import schema as graphql_schema
-from starlette_graphene_django import GraphQLView
 
-# If you have existing routes, import them here
-# from api.routes import router as basic_router
+# Optional GraphQL support
+try:
+    from api.graphql_api import schema as graphql_schema
+    from starlette_graphene_django import GraphQLView
+    GRAPHQL_AVAILABLE = True
+except ImportError:
+    GRAPHQL_AVAILABLE = False
+    print("⚠ GraphQL not available - graphene or starlette integration not installed")
 
 # ==============================================================================
 # Lifecycle Management
@@ -94,11 +98,15 @@ app.include_router(advanced_router)
 # GraphQL Endpoint
 # ==============================================================================
 
-# Mount GraphQL endpoint
-app.add_route(
-    "/graphql",
-    GraphQLView.as_view(schema=graphql_schema),
-)
+# Mount GraphQL endpoint (if available)
+if GRAPHQL_AVAILABLE:
+    try:
+        app.add_route(
+            "/graphql",
+            GraphQLView.as_view(schema=graphql_schema),
+        )
+    except Exception as e:
+        print(f"⚠ GraphQL endpoint could not be mounted: {e}")
 
 # ==============================================================================
 # Root Endpoints
@@ -323,9 +331,17 @@ async def test_all_systems():
 
 if __name__ == "__main__":
     import uvicorn
+    import os
     
-    print("""
+    # Read configuration from environment variables
+    agent_id = os.getenv("AGENT_ID", "default_agent")
+    api_port = int(os.getenv("API_PORT", "8000"))
+    
+    print(f"""
     Starting Nova Memory 2.0 with Advanced Features
+    
+    Agent ID: {agent_id}
+    Port: {api_port}
     
     🚀 Instructions:
     
@@ -333,25 +349,25 @@ if __name__ == "__main__":
        redis-server
     
     2. Start the API server:
-       uvicorn api.integration:app --reload --host 0.0.0.0 --port 8000
+       uvicorn api.integration:app --reload --host 0.0.0.0 --port {api_port}
     
     3. Access the application:
-       - API Docs: http://localhost:8000/docs
-       - GraphQL: http://localhost:8000/graphql
-       - Advanced API: http://localhost:8000/api/v2/*
+       - API Docs: http://localhost:{api_port}/docs
+       - GraphQL: http://localhost:{api_port}/graphql
+       - Advanced API: http://localhost:{api_port}/api/v2/*
     
     4. Run the demo to test all features:
        python advanced_demo.py
     
     5. Check system health:
-       curl http://localhost:8000/health
+       curl http://localhost:{api_port}/health
     
     """)
     
     uvicorn.run(
         "api.integration:app",
         host="0.0.0.0",
-        port=8000,
-        reload=True,
+        port=api_port,
+        reload=False,
         log_level="info"
     )
