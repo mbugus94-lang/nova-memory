@@ -1,0 +1,55 @@
+version: '3.9'
+
+services:
+  nova-memory-api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: nova-memory-api
+    ports:
+      - "${API_PORT:-8000}:8000"
+    environment:
+      - API_HOST=0.0.0.0
+      - API_PORT=8000
+      - API_WORKERS=4
+      - DATABASE_PATH=/app/data/nova_memory.db
+      - DATABASE_BACKUP_PATH=/app/backups
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - SOLANA_RPC_URL=${SOLANA_RPC_URL:-https://api.devnet.solana.com}
+      - SOLANA_NETWORK=${SOLANA_NETWORK:-devnet}
+    volumes:
+      - ./data:/app/data
+      - ./backups:/app/backups
+      - ./logs:/app/logs
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 5s
+    networks:
+      - nova-network
+
+  # Optional: Database management service
+  # Uncomment to add database UI (requires additional setup)
+  # adminer:
+  #   image: adminer
+  #   ports:
+  #     - "8080:8080"
+  #   networks:
+  #     - nova-network
+  #   depends_on:
+  #     - nova-memory-api
+
+networks:
+  nova-network:
+    driver: bridge
+
+volumes:
+  nova_data:
+    driver: local
+  nova_backups:
+    driver: local
+  nova_logs:
+    driver: local
