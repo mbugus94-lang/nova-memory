@@ -23,13 +23,11 @@ import sqlite3
 import uuid
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
-from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 import uvicorn
-from fastapi import FastAPI, HTTPException, Query, Depends, status, Header, Request
+from fastapi import FastAPI, HTTPException, Query, Depends, status
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from pydantic import BaseModel, Field
 
@@ -298,7 +296,7 @@ async def login(form_data: OAuth2PasswordRequestForm = Depends()):
                     permissions=[Permission.ADMIN_ALL]
                 )
                 return {"access_token": access_token, "token_type": "bearer"}
-    
+
     # Allow agents to self-authenticate with agent secret
     agent_secret = os.getenv("NOVA_AGENT_SECRET", "nova_agent_secret")
     if form_data.password == agent_secret:
@@ -354,17 +352,17 @@ async def create_memory(memory: MemoryCreate, current_user: dict = Depends(get_c
     """Store a new memory (Authenticated)."""
     # Use the authenticated user as author if not provided
     author = memory.author or current_user.get("agent_id")
-    
+
     mid = storage.add_memory(
         content=memory.content,
         metadata=memory.metadata,
         tags=memory.tags,
         author=author
     )
-    
+
     if not mid:
         raise HTTPException(status_code=500, detail="Failed to store memory")
-        
+
     # Fetch back to return response
     mem_data = storage.get_memory(mid)
     return MemoryResponse(**mem_data)
@@ -379,13 +377,13 @@ async def get_memory_context(request: ContextRequest):
         query=request.query,
         limit=request.limit
     )
-    
+
     context_parts = []
     for idx, res in enumerate(results, 1):
         context_parts.append(f"[Memory {idx}] (Score: High): {res['content']}")
-    
+
     consolidated_context = "\n\n".join(context_parts)
-    
+
     return ContextResponse(
         context=consolidated_context,
         sources=results
@@ -401,12 +399,12 @@ async def list_memories(
 ):
     """List or search memories."""
     tag_list = [t.strip() for t in tags.split(",")] if tags else None
-    
+
     if query:
         results = storage.search_memories(query, tags=tag_list, limit=limit)
     else:
         results = storage.list_memories(tags=tag_list, author=author, limit=limit, offset=offset)
-        
+
     return [MemoryResponse(**r) for r in results]
 
 @app.get("/memories/{memory_id}", response_model=MemoryResponse, tags=["Memories"])
@@ -426,10 +424,10 @@ async def update_memory(memory_id: str, update: MemoryUpdate, current_user: dict
         metadata=update.metadata,
         tags=update.tags
     )
-    
+
     if not success:
         raise HTTPException(status_code=404, detail="Memory not found or update failed")
-        
+
     mem_data = storage.get_memory(memory_id)
     return MemoryResponse(**mem_data)
 
@@ -446,7 +444,7 @@ async def delete_memory(memory_id: str, current_user: dict = Depends(get_current
 
 @app.post("/interactions", response_model=InteractionResponse, status_code=201, tags=["Interactions"])
 async def create_interaction(
-    interaction: InteractionCreate, 
+    interaction: InteractionCreate,
     auto_capture: bool = Query(False, description="Automatically save as memory")
 ):
     """
@@ -550,17 +548,17 @@ async def create_collaborative_space(space: SpaceCreate, current_user: dict = De
     """Create a new collaborative space."""
     # Ensure creator is consistent
     creator = space.creator or current_user.get("agent_id")
-    
+
     space_id = collab.create_collaborative_space(
         space_name=space.space_name,
         creator=creator,
         members=space.members,
         permissions=space.permissions
     )
-    
+
     if not space_id:
         raise HTTPException(status_code=400, detail="Failed to create space (name might be taken)")
-        
+
     return {"space_id": space_id, "status": "created"}
 
 @app.get("/collaboration/spaces", tags=["Collaboration"])
@@ -578,10 +576,10 @@ async def share_memory(share: ShareMemoryRequest, current_user: dict = Depends(g
         access_level=share.access_level,
         expires_at=share.expires_at
     )
-    
+
     if not share_id:
         raise HTTPException(status_code=400, detail="Failed to share memory")
-        
+
     return {"share_id": share_id, "status": "shared"}
 
 @app.get("/collaboration/shares/{agent_id}", tags=["Collaboration"])

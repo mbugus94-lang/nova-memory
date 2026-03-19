@@ -13,7 +13,6 @@ import sqlite3
 import json
 import logging
 from contextlib import contextmanager
-from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)

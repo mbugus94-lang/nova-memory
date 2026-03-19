@@ -9,10 +9,8 @@ Usage:
     run_migrations(db_path="nova_memory_v2.db")
 """
 
-import os
 import sqlite3
 import logging
-from pathlib import Path
 from typing import Callable, List, Dict, Any
 
 logger = logging.getLogger(__name__)

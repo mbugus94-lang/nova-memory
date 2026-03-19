@@ -4,7 +4,6 @@ Nova Memory 2.0 - Installation & Setup Helper
 Automated setup script for easy project configuration
 """
 
-import os
 import sys
 import subprocess
 import shutil
@@ -63,7 +62,7 @@ class NovaMemorySetup:
 
         if env_example.exists():
             shutil.copy(env_example, env_file)
-            self.print_success(f"Created .env from .env.example")
+            self.print_success("Created .env from .env.example")
             self.print_warning("⚠ Remember to update .env with your actual configuration!")
         else:
             self.print_warning(".env.example not found, skipping .env creation")

@@ -13,7 +13,6 @@ environment.  Install torch separately to unlock the neural fine-tuning path.
 
 import json
 import logging
-import os
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
@@ -381,7 +380,7 @@ if __name__ == "__main__":
 
     # Retrieve
     results = engine.retrieve_memories("insulin dosage", top_k=2)
-    print(f"\nTop-2 memories for 'insulin dosage':")
+    print("\nTop-2 memories for 'insulin dosage':")
     for r in results:
         print(f"  {r['text']}")
 

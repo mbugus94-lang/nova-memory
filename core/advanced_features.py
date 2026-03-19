@@ -4,10 +4,10 @@ Integrates all advanced features (Redis, Semantic Search, Messaging, Security)
 """
 
 import logging
-from typing import Dict, List, Any, Optional
+from typing import Dict, Any, Optional
 
-from core.redis_cache import get_redis_cache, init_redis_cache
-from core.semantic_search import get_semantic_search, init_semantic_search
+from core.redis_cache import init_redis_cache
+from core.semantic_search import init_semantic_search
 from core.agent_messaging import get_message_broker
 from core.security import (
     get_jwt_manager, get_encryption_manager, get_audit_log,
@@ -24,7 +24,7 @@ logger = logging.getLogger(__name__)
 class NovaMemoryAdvanced:
     """
     Advanced Nova Memory system with all features integrated
-    
+
     Features:
     - Redis caching for performance
     - Semantic search with embeddings
@@ -34,7 +34,7 @@ class NovaMemoryAdvanced:
     - Agent registry & discovery
     - Memory optimization & garbage collection
     """
-    
+
     def __init__(
         self,
         redis_host: str = "localhost",
@@ -72,9 +72,9 @@ class NovaMemoryAdvanced:
         self.gc = MemoryGarbageCollector()
         self.resolver = ConflictResolver()
         self.optimizer = MemoryOptimizer()
-        
+
         logger.info("Nova Memory Advanced features initialized")
-    
+
     def get_system_stats(self) -> Dict[str, Any]:
         """Get comprehensive system statistics"""
         return {
@@ -86,7 +86,7 @@ class NovaMemoryAdvanced:
             "broker": self.message_broker.get_stats() if self.message_broker else None,
             "timestamp": __import__('datetime').datetime.now().isoformat(),
         }
-    
+
     def health_check(self) -> Dict[str, bool]:
         """Check health of all components"""
         return {

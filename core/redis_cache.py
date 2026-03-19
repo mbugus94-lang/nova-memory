@@ -6,7 +6,6 @@ Provides fast in-memory caching for frequently accessed memories
 import json
 import logging
 from typing import Any, Optional, Dict, List
-from datetime import timedelta
 import hashlib
 
 try:
@@ -20,7 +19,7 @@ logger = logging.getLogger(__name__)
 
 class RedisCache:
     """Redis-based caching layer for Nova Memory"""
-    
+
     def __init__(
         self,
         host: str = "localhost",
@@ -32,7 +31,7 @@ class RedisCache:
     ):
         """
         Initialize Redis cache connection
-        
+
         Args:
             host: Redis server host
             port: Redis server port
@@ -44,11 +43,11 @@ class RedisCache:
         self.enabled = enabled and REDIS_AVAILABLE
         self.default_ttl = default_ttl
         self.client: Optional[redis.Redis] = None
-        
+
         if not self.enabled:
             logger.warning("Redis caching disabled - install redis-py or ensure Redis is available")
             return
-        
+
         try:
             self.client = redis.Redis(
                 host=host,
@@ -66,12 +65,12 @@ class RedisCache:
             logger.error(f"Failed to connect to Redis: {e}")
             self.enabled = False
             self.client = None
-    
+
     def get(self, key: str) -> Optional[Any]:
         """Get value from cache"""
         if not self.enabled or not self.client:
             return None
-        
+
         try:
             value = self.client.get(key)
             if value:
@@ -83,7 +82,7 @@ class RedisCache:
         except Exception as e:
             logger.error(f"Cache get error: {e}")
             return None
-    
+
     def set(
         self,
         key: str,
@@ -93,7 +92,7 @@ class RedisCache:
         """Set value in cache with optional TTL"""
         if not self.enabled or not self.client:
             return False
-        
+
         try:
             ttl = ttl or self.default_ttl
             self.client.setex(
@@ -106,12 +105,12 @@ class RedisCache:
         except Exception as e:
             logger.error(f"Cache set error: {e}")
             return False
-    
+
     def delete(self, key: str) -> bool:
         """Delete value from cache"""
         if not self.enabled or not self.client:
             return False
-        
+
         try:
             self.client.delete(key)
             logger.debug(f"Cache DELETE: {key}")
@@ -119,12 +118,12 @@ class RedisCache:
         except Exception as e:
             logger.error(f"Cache delete error: {e}")
             return False
-    
+
     def clear_pattern(self, pattern: str) -> int:
         """Clear all keys matching pattern"""
         if not self.enabled or not self.client:
             return 0
-        
+
         try:
             keys = self.client.keys(pattern)
             if keys:
@@ -135,12 +134,12 @@ class RedisCache:
         except Exception as e:
             logger.error(f"Cache clear error: {e}")
             return 0
-    
+
     def flush_all(self) -> bool:
         """Flush entire cache"""
         if not self.enabled or not self.client:
             return False
-        
+
         try:
             self.client.flushdb()
             logger.warning("Cache flushed")
@@ -148,7 +147,7 @@ class RedisCache:
         except Exception as e:
             logger.error(f"Cache flush error: {e}")
             return False
-    
+
     def get_or_set(
         self,
         key: str,
@@ -159,16 +158,16 @@ class RedisCache:
         cached = self.get(key)
         if cached is not None:
             return cached
-        
+
         value = callback()
         self.set(key, value, ttl)
         return value
-    
+
     def mget(self, keys: List[str]) -> Dict[str, Any]:
         """Get multiple values at once"""
         if not self.enabled or not self.client:
             return {}
-        
+
         try:
             values = self.client.mget(keys)
             result = {}
@@ -182,12 +181,12 @@ class RedisCache:
         except Exception as e:
             logger.error(f"Cache mget error: {e}")
             return {}
-    
+
     def mset(self, mapping: Dict[str, Any], ttl: Optional[int] = None) -> bool:
         """Set multiple values at once"""
         if not self.enabled or not self.client:
             return False
-        
+
         try:
             ttl = ttl or self.default_ttl
             pipe = self.client.pipeline()
@@ -199,12 +198,12 @@ class RedisCache:
         except Exception as e:
             logger.error(f"Cache mset error: {e}")
             return False
-    
+
     def get_stats(self) -> Dict[str, Any]:
         """Get cache statistics"""
         if not self.enabled or not self.client:
             return {"enabled": False}
-        
+
         try:
             info = self.client.info()
             return {
@@ -217,13 +216,13 @@ class RedisCache:
         except Exception as e:
             logger.error(f"Error getting cache stats: {e}")
             return {"enabled": False, "error": str(e)}
-    
+
     @staticmethod
     def make_key(prefix: str, *parts: str) -> str:
         """Create a cache key from parts"""
         key_parts = [prefix] + list(parts)
         return ":".join(str(p) for p in key_parts)
-    
+
     @staticmethod
     def hash_key(value: str) -> str:
         """Create a hash of a value for use as cache key"""

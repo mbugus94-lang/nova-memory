@@ -9,8 +9,7 @@ import unittest
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from core.agent_messaging import (
-    MessageBroker, MessageType, MessagePriority,
-    create_message, send_message,
+    MessageBroker, MessageType, create_message, send_message,
 )
 
 

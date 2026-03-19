@@ -4,8 +4,8 @@ Garbage collection, memory optimization, and conflict resolution
 """
 
 import logging
-from typing import List, Dict, Any, Optional, Callable
-from datetime import datetime, timedelta, timezone
+from typing import List, Dict, Any, Callable
+from datetime import datetime, timezone
 from dataclasses import dataclass
 import json
 
@@ -24,38 +24,38 @@ class RetentionPolicy:
 
 class MemoryGarbageCollector:
     """Manages memory cleanup and archival"""
-    
+
     def __init__(self, retention_policy: RetentionPolicy = None):
         """
         Initialize garbage collector
-        
+
         Args:
             retention_policy: Policy for memory retention
         """
         self.policy = retention_policy or RetentionPolicy()
         self.archived: List[Dict[str, Any]] = []
         self.deleted: List[Dict[str, Any]] = []
-    
+
     def analyze_memory(self, memory: Dict[str, Any]) -> Dict[str, Any]:
         """
         Analyze memory for garbage collection
-        
+
         Returns:
             Analysis with recommendation: "keep", "archive", or "delete"
         """
         created_at = memory.get("created_at")
         access_count = memory.get("access_count", 0)
         size = len(json.dumps(memory))
-        
+
         if created_at:
             try:
                 created = datetime.fromisoformat(created_at)
                 if created.tzinfo is None:
                     created = created.replace(tzinfo=timezone.utc)
-                
+
                 now = datetime.now(timezone.utc)
                 age_days = (now - created).days
-                
+
                 # Check deletion criteria
                 if age_days > self.policy.delete_after_days:
                     if access_count < self.policy.min_access_count:
@@ -68,7 +68,7 @@ class MemoryGarbageCollector:
                             "age_days": age_days,
                             "size": size,
                         }
-                
+
                 # Check archival criteria
                 if age_days > self.policy.archive_after_days and size > self.policy.min_size_bytes:
                     return {
@@ -80,7 +80,7 @@ class MemoryGarbageCollector:
                         "age_days": age_days,
                         "size": size,
                     }
-                
+
                 return {
                     "recommendation": "keep",
                     "age_days": age_days,
@@ -90,9 +90,9 @@ class MemoryGarbageCollector:
             except Exception as e:
                 logger.error(f"Error analyzing memory: {e}")
                 return {"recommendation": "keep", "error": str(e)}
-        
+
         return {"recommendation": "keep"}
-    
+
     def collect_garbage(
         self,
         memories: List[Dict[str, Any]],
@@ -101,12 +101,12 @@ class MemoryGarbageCollector:
     ) -> Dict[str, Any]:
         """
         Run garbage collection on memory list
-        
+
         Args:
             memories: List of memories to process
             delete_handler: Callback for deleting memories
             archive_handler: Callback for archiving memories
-            
+
         Returns:
             Statistics on what was collected
         """
@@ -117,36 +117,36 @@ class MemoryGarbageCollector:
             "deleted": 0,
             "errors": 0,
         }
-        
+
         for memory in memories:
             try:
                 analysis = self.analyze_memory(memory)
                 recommendation = analysis.get("recommendation", "keep")
-                
+
                 if recommendation == "delete":
                     if delete_handler:
                         delete_handler(memory)
                     self.deleted.append(memory)
                     stats["deleted"] += 1
                     logger.info(f"Deleted memory: {memory.get('id')}")
-                
+
                 elif recommendation == "archive":
                     if archive_handler:
                         archive_handler(memory)
                     self.archived.append(memory)
                     stats["archived"] += 1
                     logger.info(f"Archived memory: {memory.get('id')}")
-                
+
                 else:
                     stats["kept"] += 1
-            
+
             except Exception as e:
                 logger.error(f"Error processing memory: {e}")
                 stats["errors"] += 1
-        
+
         logger.info(f"Garbage collection complete: {stats}")
         return stats
-    
+
     def export_archived(self, format: str = "json") -> str:
         """Export archived memories"""
         if format == "json":
@@ -157,7 +157,7 @@ class MemoryGarbageCollector:
 
 class ConflictResolver:
     """Resolves conflicts from concurrent memory updates"""
-    
+
     @staticmethod
     def resolve_last_write_wins(
         current: Dict[str, Any],
@@ -167,22 +167,22 @@ class ConflictResolver:
         """Last-write-wins strategy"""
         current_time = current.get(field)
         incoming_time = incoming.get(field)
-        
+
         try:
             if isinstance(current_time, str):
                 current_time = datetime.fromisoformat(current_time)
             if isinstance(incoming_time, str):
                 incoming_time = datetime.fromisoformat(incoming_time)
-            
+
             if incoming_time > current_time:
                 logger.info("Conflict resolved: incoming update wins (LWW)")
                 return incoming
         except Exception as e:
             logger.error(f"Error comparing timestamps: {e}")
-        
+
         logger.info("Conflict resolved: current version wins (LWW)")
         return current
-    
+
     @staticmethod
     def resolve_merge(
         current: Dict[str, Any],
@@ -190,7 +190,7 @@ class ConflictResolver:
     ) -> Dict[str, Any]:
         """Merge strategy - combines non-conflicting fields"""
         merged = current.copy()
-        
+
         for key, value in incoming.items():
             if key not in merged:
                 # New field, add it
@@ -204,10 +204,10 @@ class ConflictResolver:
                 merged_metadata.update(value)
                 merged[key] = merged_metadata
             # For other fields, keep current (incoming would overwrite)
-        
+
         logger.info("Conflict resolved: merge strategy")
         return merged
-    
+
     @staticmethod
     def resolve_custom(
         current: Dict[str, Any],
@@ -222,7 +222,7 @@ class ConflictResolver:
         except Exception as e:
             logger.error(f"Error in custom resolver: {e}")
             return current
-    
+
     @staticmethod
     def detect_conflict(
         version1: Dict[str, Any],
@@ -232,21 +232,21 @@ class ConflictResolver:
         # Simple conflict detection: if content differs and both are newer than original
         v1_content = version1.get("content")
         v2_content = version2.get("content")
-        
+
         if v1_content != v2_content:
             v1_time = version1.get("updated_at")
             v2_time = version2.get("updated_at")
-            
+
             # If both were updated, there's a conflict
             if v1_time and v2_time:
                 return True
-        
+
         return False
 
 
 class MemoryOptimizer:
     """Optimize memory usage and database performance"""
-    
+
     @staticmethod
     def estimate_size(memory: Dict[str, Any]) -> int:
         """Estimate memory size in bytes"""
@@ -254,7 +254,7 @@ class MemoryOptimizer:
             return len(json.dumps(memory).encode('utf-8'))
         except Exception:
             return 0
-    
+
     @staticmethod
     def calculate_compression_ratio(
         original_size: int,
@@ -264,24 +264,24 @@ class MemoryOptimizer:
         if original_size == 0:
             return 0.0
         return (1 - compressed_size / original_size) * 100
-    
+
     @staticmethod
     def optimize_memory(memory: Dict[str, Any]) -> Dict[str, Any]:
         """Optimize memory content"""
         optimized = memory.copy()
-        
+
         # Remove unnecessary fields
         to_remove = [f for f in optimized if f.startswith("_")]
         for field in to_remove:
             del optimized[field]
-        
+
         # Compress large text fields
         if "content" in optimized:
             content = optimized["content"]
             if isinstance(content, str) and len(content) > 10000:
                 # Mark that this should be compressed
                 optimized["_needs_compression"] = True
-        
+
         return optimized
 
 
@@ -291,31 +291,31 @@ def detect_duplicates(
 ) -> List[tuple]:
     """
     Detect potentially duplicate memories using simple similarity
-    
+
     Args:
         memories: Memories to check
         threshold: Similarity threshold (0-1)
-        
+
     Returns:
         List of (memory1, memory2, similarity) tuples
     """
     duplicates = []
-    
+
     for i, mem1 in enumerate(memories):
         for mem2 in memories[i+1:]:
             # Simple content-based similarity
             content1 = mem1.get("content", "").lower()
             content2 = mem2.get("content", "").lower()
-            
+
             if not content1 or not content2:
                 continue
-            
+
             # Very basic similarity check (character overlap)
             common = sum(1 for c in content1 if c in content2)
             if common > 0:
                 similarity = common / max(len(content1), len(content2))
-                
+
                 if similarity >= threshold:
                     duplicates.append((mem1, mem2, similarity))
-    
+
     return duplicates

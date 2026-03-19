@@ -99,7 +99,7 @@ async def get_async_conn(db_path: str) -> AsyncGenerator:
             await conn.close()
     else:
         # Sync fallback — wraps in thread executor
-        loop = asyncio.get_event_loop()
+        asyncio.get_event_loop()
         sync_conn = sqlite3.connect(db_path)
         sync_conn.row_factory = sqlite3.Row
         sync_conn.execute("PRAGMA journal_mode=WAL")

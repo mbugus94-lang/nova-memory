@@ -4,7 +4,6 @@ Tests for API server routes — auth, memories, agents, collaboration, health.
 
 import os
 import sys
-import json
 import unittest
 import tempfile
 

@@ -41,16 +41,16 @@ class Permission(str, Enum):
     UPDATE_MEMORY = "update:memory"
     DELETE_MEMORY = "delete:memory"
     SHARE_MEMORY = "share:memory"
-    
+
     CREATE_AGENT = "create:agent"
     READ_AGENT = "read:agent"
     UPDATE_AGENT = "update:agent"
     DELETE_AGENT = "delete:agent"
-    
+
     MANAGE_COLLABORATION = "manage:collaboration"
     MANAGE_USERS = "manage:users"
     VIEW_AUDIT_LOG = "view:audit_log"
-    
+
     ADMIN_ALL = "admin:all"
 
 
@@ -89,7 +89,7 @@ ROLE_PERMISSIONS: Dict[Role, Set[Permission]] = {
 
 class JWTManager:
     """JWT token management"""
-    
+
     def __init__(
         self,
         secret_key: str = None,
@@ -98,7 +98,7 @@ class JWTManager:
     ):
         """
         Initialize JWT manager
-        
+
         Args:
             secret_key: Secret key for signing tokens
             algorithm: JWT algorithm to use
@@ -108,12 +108,12 @@ class JWTManager:
             logger.warning("JWT not available - install PyJWT")
             self.available = False
             return
-        
+
         self.available = True
         self.secret_key = secret_key or secrets.token_urlsafe(32)
         self.algorithm = algorithm
         self.expiration_hours = expiration_hours
-    
+
     def create_token(
         self,
         agent_id: str,
@@ -124,11 +124,11 @@ class JWTManager:
         """Create a JWT token for an agent"""
         if not self.available:
             return None
-        
+
         try:
             now = datetime.now(timezone.utc)
             expiration = now + timedelta(hours=self.expiration_hours)
-            
+
             payload = {
                 "agent_id": agent_id,
                 "role": role.value,
@@ -136,22 +136,22 @@ class JWTManager:
                 "iat": now,
                 "exp": expiration,
             }
-            
+
             if extra_claims:
                 payload.update(extra_claims)
-            
+
             token = jwt.encode(payload, self.secret_key, algorithm=self.algorithm)
             logger.info(f"Token created for agent: {agent_id}")
             return token
         except Exception as e:
             logger.error(f"Error creating token: {e}")
             return None
-    
+
     def verify_token(self, token: str) -> Optional[Dict[str, Any]]:
         """Verify and decode a JWT token"""
         if not self.available:
             return None
-        
+
         try:
             payload = jwt.decode(token, self.secret_key, algorithms=[self.algorithm])
             return payload
@@ -161,7 +161,7 @@ class JWTManager:
         except jwt.InvalidTokenError as e:
             logger.warning(f"Invalid token: {e}")
             return None
-    
+
     def has_permission(
         self,
         token: str,
@@ -171,26 +171,26 @@ class JWTManager:
         payload = self.verify_token(token)
         if not payload:
             return False
-        
+
         permissions = payload.get("permissions", [])
-        role = Role(payload.get("role", Role.VIEWER.value))
-        
+        Role(payload.get("role", Role.VIEWER.value))
+
         # Check for admin all permission
         if "admin:all" in permissions:
             return True
-        
+
         # Check specific permission
         return required_permission.value in permissions
 
 
 class AttributeManager:
     """Manage attribute-based access control"""
-    
+
     def __init__(self):
         """Initialize attribute manager"""
         # Map of (agent_id, resource_id) -> attributes
         self.attributes: Dict[tuple, Dict[str, Any]] = {}
-    
+
     def set_attributes(
         self,
         agent_id: str,
@@ -201,7 +201,7 @@ class AttributeManager:
         key = (agent_id, resource_id)
         self.attributes[key] = attributes
         logger.debug(f"Attributes set for {agent_id}:{resource_id}")
-    
+
     def get_attributes(
         self,
         agent_id: str,
@@ -210,7 +210,7 @@ class AttributeManager:
         """Get attributes for an agent-resource pair"""
         key = (agent_id, resource_id)
         return self.attributes.get(key, {})
-    
+
     def can_access(
         self,
         agent_id: str,
@@ -219,21 +219,21 @@ class AttributeManager:
     ) -> bool:
         """Check if agent can access resource based on attributes"""
         attributes = self.get_attributes(agent_id, resource_id)
-        
+
         for key, required_value in required_attributes.items():
             if attributes.get(key) != required_value:
                 return False
-        
+
         return True
 
 
 class EncryptionManager:
     """Manage encryption of sensitive memory data"""
-    
+
     def __init__(self, key: str = None):
         """
         Initialize encryption manager
-        
+
         Args:
             key: Encryption key (base64 encoded)
         """
@@ -241,7 +241,7 @@ class EncryptionManager:
             logger.warning("Encryption not available - install cryptography")
             self.available = False
             return
-        
+
         self.available = True
         if key:
             self.cipher = Fernet(key.encode() if isinstance(key, str) else key)
@@ -250,24 +250,24 @@ class EncryptionManager:
             self.encryption_key = Fernet.generate_key()
             self.cipher = Fernet(self.encryption_key)
             logger.info("Generated new encryption key")
-    
+
     def encrypt(self, plaintext: str) -> Optional[str]:
         """Encrypt plaintext"""
         if not self.available:
             return plaintext
-        
+
         try:
             ciphertext = self.cipher.encrypt(plaintext.encode())
             return ciphertext.decode()
         except Exception as e:
             logger.error(f"Encryption error: {e}")
             return plaintext
-    
+
     def decrypt(self, ciphertext: str) -> Optional[str]:
         """Decrypt ciphertext"""
         if not self.available:
             return ciphertext
-        
+
         try:
             plaintext = self.cipher.decrypt(ciphertext.encode())
             return plaintext.decode()
@@ -278,17 +278,17 @@ class EncryptionManager:
 
 class AuditLog:
     """Audit logging for security and compliance"""
-    
+
     def __init__(self, max_entries: int = 10000):
         """
         Initialize audit log
-        
+
         Args:
             max_entries: Maximum number of entries to keep
         """
         self.entries: List[Dict[str, Any]] = []
         self.max_entries = max_entries
-    
+
     def log(
         self,
         action: str,
@@ -306,15 +306,15 @@ class AuditLog:
             "status": status,
             "details": details or {},
         }
-        
+
         self.entries.append(entry)
-        
+
         # Keep log size bounded
         if len(self.entries) > self.max_entries:
             self.entries.pop(0)
-        
+
         logger.info(f"Audit: {actor} {action} {resource} ({status})")
-    
+
     def get_logs(
         self,
         actor: str = None,
@@ -323,15 +323,15 @@ class AuditLog:
     ) -> List[Dict[str, Any]]:
         """Get audit logs with optional filtering"""
         filtered = self.entries
-        
+
         if actor:
             filtered = [e for e in filtered if e["actor"] == actor]
-        
+
         if action:
             filtered = [e for e in filtered if e["action"] == action]
-        
+
         return filtered[-limit:]
-    
+
     def export(self) -> str:
         """Export audit log as JSON"""
         return json.dumps(self.entries, indent=2)
@@ -380,14 +380,14 @@ def hash_password(password: str, salt: str = None) -> tuple[str, str]:
     """Hash a password with salt"""
     if salt is None:
         salt = secrets.token_hex(16)
-    
+
     hash_obj = hashlib.pbkdf2_hmac(
         'sha256',
         password.encode(),
         salt.encode(),
         100000,
     )
-    
+
     return hash_obj.hex(), salt
 
 

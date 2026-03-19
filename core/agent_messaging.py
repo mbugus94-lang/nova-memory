@@ -4,7 +4,6 @@ Enables direct communication between agents with pub/sub and request/response pa
 """
 
 import logging
-import json
 from datetime import datetime, timezone
 from typing import Dict, List, Any, Optional, Callable
 import uuid
@@ -47,20 +46,20 @@ class Message:
     timestamp: str = None
     reply_to: Optional[str] = None
     metadata: Dict[str, Any] = None
-    
+
     def __post_init__(self):
         if self.timestamp is None:
             self.timestamp = datetime.now(timezone.utc).isoformat()
         if self.metadata is None:
             self.metadata = {}
-    
+
     def to_dict(self) -> Dict[str, Any]:
         """Convert message to dictionary"""
         data = asdict(self)
         data['type'] = self.type.value
         data['priority'] = self.priority.value
         return data
-    
+
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> 'Message':
         """Create message from dictionary"""
@@ -74,7 +73,7 @@ class Message:
 
 class MessageBroker:
     """Central message broker for agent communication"""
-    
+
     def __init__(self):
         """Initialize message broker"""
         self.subscriptions: Dict[str, List[str]] = {}  # topic -> [agent_ids]
@@ -83,14 +82,14 @@ class MessageBroker:
         self.message_history: List[Message] = []
         self.max_history = 1000
         self.lock = threading.RLock()
-    
+
     def register_agent(self, agent_id: str) -> None:
         """Register an agent with the broker"""
         with self.lock:
             if agent_id not in self.agent_inboxes:
                 self.agent_inboxes[agent_id] = queue.Queue()
                 logger.info(f"Agent registered: {agent_id}")
-    
+
     def unregister_agent(self, agent_id: str) -> None:
         """Unregister an agent"""
         with self.lock:
@@ -103,13 +102,13 @@ class MessageBroker:
                 if not self.subscriptions[topic]:
                     del self.subscriptions[topic]
             logger.info(f"Agent unregistered: {agent_id}")
-    
+
     def publish(self, message: Message) -> bool:
         """Publish a message to recipient(s)"""
         with self.lock:
             # Add to history
             self._add_to_history(message)
-            
+
             # Send to specific recipient
             if message.recipient in self.agent_inboxes:
                 self.agent_inboxes[message.recipient].put(message)
@@ -118,26 +117,26 @@ class MessageBroker:
             else:
                 logger.warning(f"Recipient not found: {message.recipient}")
                 return False
-    
+
     def broadcast(self, message: Message, topic: str) -> int:
         """Broadcast a message to all subscribers of a topic"""
         with self.lock:
             # Add to history
             self._add_to_history(message)
-            
+
             subscribers = self.subscriptions.get(topic, [])
             count = 0
-            
+
             for agent_id in subscribers:
                 if agent_id != message.sender:  # Don't send to self
                     message.recipient = agent_id
                     if agent_id in self.agent_inboxes:
                         self.agent_inboxes[agent_id].put(message)
                         count += 1
-            
+
             logger.info(f"Message broadcast: {message.id} to {count} agents on topic {topic}")
             return count
-    
+
     def subscribe(self, agent_id: str, topic: str) -> None:
         """Subscribe an agent to a topic"""
         with self.lock:
@@ -146,7 +145,7 @@ class MessageBroker:
             if agent_id not in self.subscriptions[topic]:
                 self.subscriptions[topic].append(agent_id)
                 logger.info(f"Agent {agent_id} subscribed to topic {topic}")
-    
+
     def unsubscribe(self, agent_id: str, topic: str) -> None:
         """Unsubscribe an agent from a topic"""
         with self.lock:
@@ -156,19 +155,19 @@ class MessageBroker:
                 if not self.subscriptions[topic]:
                     del self.subscriptions[topic]
                 logger.info(f"Agent {agent_id} unsubscribed from topic {topic}")
-    
+
     def receive(self, agent_id: str, timeout: float = 0.1) -> Optional[Message]:
         """Receive next message for an agent"""
         if agent_id not in self.agent_inboxes:
             return None
-        
+
         try:
             message = self.agent_inboxes[agent_id].get(timeout=timeout)
             logger.debug(f"Message received by {agent_id}: {message.id}")
             return message
         except queue.Empty:
             return None
-    
+
     def receive_all(self, agent_id: str) -> List[Message]:
         """Receive all available messages for an agent"""
         messages = []
@@ -178,22 +177,22 @@ class MessageBroker:
                 break
             messages.append(msg)
         return messages
-    
+
     def register_handler(self, request_type: str, handler: Callable) -> None:
         """Register a handler for a request type"""
         self.request_handlers[request_type] = handler
         logger.info(f"Request handler registered: {request_type}")
-    
+
     def handle_request(self, message: Message) -> Optional[Message]:
         """Handle a request message and return response"""
         subject_parts = message.subject.split(":")
         request_type = subject_parts[0] if subject_parts else message.subject
-        
+
         handler = self.request_handlers.get(request_type)
         if not handler:
             logger.warning(f"No handler for request type: {request_type}")
             return None
-        
+
         try:
             response_content = handler(message.content)
             response = Message(
@@ -210,7 +209,7 @@ class MessageBroker:
         except Exception as e:
             logger.error(f"Error handling request: {e}")
             return None
-    
+
     def get_history(
         self,
         agent_id: Optional[str] = None,
@@ -220,22 +219,22 @@ class MessageBroker:
         """Get message history with optional filtering"""
         with self.lock:
             filtered = self.message_history
-            
+
             if agent_id:
-                filtered = [m for m in filtered 
+                filtered = [m for m in filtered
                           if m.sender == agent_id or m.recipient == agent_id]
-            
+
             if message_type:
                 filtered = [m for m in filtered if m.type == message_type]
-            
+
             return filtered[-limit:]
-    
+
     def clear_history(self) -> None:
         """Clear message history"""
         with self.lock:
             self.message_history.clear()
             logger.info("Message history cleared")
-    
+
     def get_stats(self) -> Dict[str, Any]:
         """Get broker statistics"""
         with self.lock:
@@ -253,7 +252,7 @@ class MessageBroker:
                     for topic, agents in self.subscriptions.items()
                 },
             }
-    
+
     def _add_to_history(self, message: Message) -> None:
         """Add message to history, maintaining max size"""
         self.message_history.append(message)
@@ -306,7 +305,7 @@ def send_message(
     broker = get_message_broker()
     broker.register_agent(sender)
     broker.register_agent(recipient)
-    
+
     message = create_message(
         sender=sender,
         recipient=recipient,
@@ -315,7 +314,7 @@ def send_message(
         message_type=MessageType.NOTIFICATION,
         priority=priority,
     )
-    
+
     return broker.publish(message)
 
 
@@ -328,7 +327,7 @@ def broadcast_event(
     """Broadcast an event to all subscribers of a topic"""
     broker = get_message_broker()
     broker.register_agent(sender)
-    
+
     message = create_message(
         sender=sender,
         recipient="",  # Will be set during broadcast
@@ -336,5 +335,5 @@ def broadcast_event(
         content=data,
         message_type=MessageType.EVENT,
     )
-    
+
     return broker.broadcast(message, topic)

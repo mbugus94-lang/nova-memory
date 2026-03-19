@@ -52,21 +52,21 @@ async def lifespan(app: FastAPI):
             enable_messaging=_get_bool_env("NOVA_ENABLE_MESSAGING", True),
             semantic_model=os.getenv("MODEL_NAME") or os.getenv("EMBEDDING_MODEL"),
         )
-        
+
         # Verify health
         health = system.health_check()
         print(f"[OK] System health: {health}")
-        
+
         # Log stats
         stats = system.get_system_stats()
         print(f"[OK] System initialized with {len(stats)} subsystems")
-        
+
     except Exception as e:
         print(f"[WARNING] Error during startup: {e}")
         print("  Features may have reduced functionality")
-    
+
     yield
-    
+
     # Shutdown
     print("[SHUTDOWN] Shutting down Nova Memory 2.0...")
     try:
@@ -247,7 +247,7 @@ async def startup_event():
     print("  🔷 GraphQL: http://localhost:8000/graphql")
     print("  🚀 Advanced API v2: http://localhost:8000/api/v2/*")
     print("\nSystem Health:")
-    
+
     try:
         system = get_nova_memory_advanced()
         if system:
@@ -257,7 +257,7 @@ async def startup_event():
                 print(f"  {icon} {component}")
     except Exception as e:
         print(f"  ⚠ Could not retrieve health status: {e}")
-    
+
     print("\n" + "="*80 + "\n")
 
 # ==============================================================================
@@ -270,13 +270,13 @@ async def startup_event():
 async def cache_demo():
     """Example: Using Redis cache."""
     system = get_nova_memory_advanced()
-    
+
     # Set a value
     system.cache.set("demo_key", {"value": "hello"}, ttl=3600)
-    
+
     # Get the value
     result = system.cache.get("demo_key")
-    
+
     return {
         "example": "Redis Cache",
         "result": result,
@@ -287,21 +287,21 @@ async def cache_demo():
 async def semantic_search_demo(query: str):
     """Example: Using semantic search."""
     system = get_nova_memory_advanced()
-    
+
     # Simple example with hardcoded memories
     memories = [
         {"id": "1", "content": "The weather is sunny today"},
         {"id": "2", "content": "It's raining outside"},
         {"id": "3", "content": "The sky is blue"},
     ]
-    
+
     # Search
     results = system.semantic_search.semantic_search(
         query=query,
         memories=memories,
         top_k=2
     )
-    
+
     return {
         "query": query,
         "results": results
@@ -311,14 +311,14 @@ async def semantic_search_demo(query: str):
 async def messaging_demo():
     """Example: Using agent messaging."""
     from core.agent_messaging import send_message, get_message_broker
-    
+
     # Get broker
     broker = get_message_broker()
-    
+
     # Register example agents
     broker.register_agent("agent_001")
     broker.register_agent("agent_002")
-    
+
     # Send message
     msg_id = send_message(
         sender="agent_001",
@@ -326,10 +326,10 @@ async def messaging_demo():
         subject="greeting",
         content={"message": "Hello from agent 001!"}
     )
-    
+
     # Get stats
     stats = broker.get_stats()
-    
+
     return {
         "message_sent": msg_id is not None,
         "stats": stats
@@ -343,12 +343,12 @@ async def messaging_demo():
 async def test_all_systems():
     """Test all advanced systems and report status."""
     system = get_nova_memory_advanced()
-    
+
     results = {
         "timestamp": str(__import__('datetime').datetime.now()),
         "systems": {}
     }
-    
+
     # Test each system
     tests = {
         "cache": lambda: bool(system.cache),
@@ -363,7 +363,7 @@ async def test_all_systems():
         "resolver": lambda: bool(system.resolver),
         "optimizer": lambda: bool(system.optimizer),
     }
-    
+
     for name, test_func in tests.items():
         try:
             results["systems"][name] = {
@@ -375,16 +375,16 @@ async def test_all_systems():
                 "available": False,
                 "status": f"✗ {str(e)}"
             }
-    
+
     # Summary
     available = sum(1 for s in results["systems"].values() if s["available"])
     total = len(results["systems"])
-    
+
     results["summary"] = {
         "systems_available": f"{available}/{total}",
         "all_systems_ready": available == total
     }
-    
+
     return results
 
 # ==============================================================================
@@ -394,38 +394,38 @@ async def test_all_systems():
 if __name__ == "__main__":
     import uvicorn
     import os
-    
+
     # Read configuration from environment variables
     agent_id = os.getenv("AGENT_ID", "default_agent")
     api_port = int(os.getenv("API_PORT", "8000"))
-    
+
     print(f"""
     Starting Nova Memory 2.0 with Advanced Features
-    
+
     Agent ID: {agent_id}
     Port: {api_port}
-    
+
     🚀 Instructions:
-    
+
     1. Ensure Redis is running (if using caching):
        redis-server
-    
+
     2. Start the API server:
        uvicorn api.integration:app --reload --host 0.0.0.0 --port {api_port}
-    
+
     3. Access the application:
        - API Docs: http://localhost:{api_port}/docs
        - GraphQL: http://localhost:{api_port}/graphql
        - Advanced API: http://localhost:{api_port}/api/v2/*
-    
+
     4. Run the demo to test all features:
        python advanced_demo.py
-    
+
     5. Check system health:
        curl http://localhost:{api_port}/health
-    
+
     """)
-    
+
     uvicorn.run(
         "api.integration:app",
         host="0.0.0.0",

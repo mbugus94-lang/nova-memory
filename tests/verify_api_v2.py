@@ -1,6 +1,5 @@
 import sys
 import os
-import time
 import uuid
 
 # Add root to sys.path
@@ -15,7 +14,7 @@ def run_verification():
     print("=" * 60)
 
     with TestClient(app) as client:
-    
+
         # 1. Test Health
         print("\n[1] Testing Health Endpoint...")
         response = client.get("/health")
@@ -31,7 +30,7 @@ def run_verification():
         response = client.post("/auth/login", data=login_data)
         if response.status_code == 200:
             token = response.json().get("access_token")
-            print(f"    [OK] Login successful. Token obtained.")
+            print("    [OK] Login successful. Token obtained.")
             headers = {"Authorization": f"Bearer {token}"}
         else:
             print(f"    [FAIL] Login failed: {response.status_code} - {response.text}")
@@ -58,12 +57,12 @@ def run_verification():
         # Wait a moment for FTS to index? (SQLite FTS is synchronous usually)
         context_req = {"query": "verification memory", "limit": 2}
         response = client.post("/memories/context", json=context_req)
-        
+
         if response.status_code == 200:
             data = response.json()
             context = data.get("context", "")
             if test_id in context:
-                 print(f"    [OK] Context retrieved successfully containing test ID.")
+                 print("    [OK] Context retrieved successfully containing test ID.")
                  print(f"    Preview: {context[:50]}...")
             else:
                  print(f"    [WARN] Context retrieved but test ID not found (indexing delay?): {context}")
@@ -81,14 +80,14 @@ def run_verification():
         # params={"auto_capture": True}
         response = client.post("/interactions?auto_capture=true", json=interaction_data)
         if response.status_code == 201:
-            print(f"    [OK] Interaction logged with auto-capture.")
+            print("    [OK] Interaction logged with auto-capture.")
             # Verify memory was created
             # Search for "Hello agent {test_id}"
             search_res = client.get(f"/memories?query=Hello%20agent%20{test_id}")
             if search_res.status_code == 200 and len(search_res.json()) > 0:
-                print(f"    [OK] Auto-captured memory found in search.")
+                print("    [OK] Auto-captured memory found in search.")
             else:
-                print(f"    [WARN] Auto-captured memory NOT found immediately.")
+                print("    [WARN] Auto-captured memory NOT found immediately.")
         else:
             print(f"    [FAIL] Interaction logging failed: {response.status_code} - {response.text}")
 

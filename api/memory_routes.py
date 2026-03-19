@@ -12,7 +12,7 @@ import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, List, Optional
 
 from fastapi import APIRouter, Header, Query
 from pydantic import BaseModel, Field
@@ -50,12 +50,12 @@ def _resolve_db_path() -> Path:
         return Path(raw).expanduser()
 
     openclaw_dir = Path(os.getenv("OPENCLAW_MEMORY_DIR", Path.home() / ".openclaw" / "memory"))
-    
+
     # Check for v2 DB locally first (aligns with server.py)
     local_v2 = Path("nova_memory_v2.db")
     if local_v2.exists():
         return local_v2.resolve()
-        
+
     return openclaw_dir / "nova_memory_central.db"
 
 

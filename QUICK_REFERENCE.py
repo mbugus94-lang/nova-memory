@@ -17,7 +17,7 @@ Print or bookmark this file for quick API lookups
 INITIALIZATION:
     from core.advanced_features import init_nova_memory_advanced
     system = init_nova_memory_advanced()
-    
+
     # Or get existing instance:
     from core.advanced_features import get_nova_memory_advanced
     system = get_nova_memory_advanced()
@@ -153,7 +153,7 @@ BROADCAST (Pub/Sub):
 MESSAGE HANDLER (Request/Response):
     def handle_analysis(request):
         return {"result": "done"}
-    
+
     broker.register_handler("agent_002", "analyze", handle_analysis)
     response = broker.handle_request("agent_002", "analyze", data)
 
@@ -263,10 +263,10 @@ UNREGISTER:
 DISCOVERY:
     # By ID
     agent = registry.get_agent("analyzer_001")
-    
+
     # By capability
     analyzers = registry.find_by_capability("analyze")
-    
+
     # By tag
     ml_agents = registry.find_by_tag("ml")
 
@@ -327,11 +327,11 @@ COLLECTION:
     def delete_handler(memory):
         # Custom delete logic
         pass
-    
+
     def archive_handler(memory):
         # Custom archive logic
         pass
-    
+
     stats = gc.collect_garbage(memories, delete_handler, archive_handler)
     # Returns: {total_analyzed, kept, archived, deleted, errors}
 
@@ -366,7 +366,7 @@ CUSTOM RESOLVER:
     def my_resolver(current, incoming):
         # Your custom logic
         return resolved_version
-    
+
     result = resolver.resolve_custom(current, incoming, my_resolver)
 """
 
@@ -550,7 +550,7 @@ LOG_FILE=nova_memory.log
 PATTERN 1: Cache + Search
     # Cache memory
     system.cache.set(f"mem_{id}", memory)
-    
+
     # Search all memories
     results = system.semantic_search.semantic_search(
         query="...",
@@ -560,7 +560,7 @@ PATTERN 1: Cache + Search
 PATTERN 2: Messaging + Registry
     # Find agents by capability
     agents = registry.find_by_capability("analyze")
-    
+
     # Send to all
     for agent_id in [a.agent_id for a in agents]:
         send_message(sender="master", recipient=agent_id, ...)
@@ -568,14 +568,14 @@ PATTERN 2: Messaging + Registry
 PATTERN 3: Auth + Audit
     # Create token
     token = jwt.create_token(agent_id="a1", role="agent")
-    
+
     # Log action
     audit.log(actor="a1", action="create_memory", status="success")
 
 PATTERN 4: Encryption + Cache
     # Encrypt sensitive data
     encrypted = encryption.encrypt(sensitive_data)
-    
+
     # Cache encrypted data
     system.cache.set("sensitive", encrypted)
 

@@ -38,7 +38,7 @@ def run_healthcare_demo() -> Dict[str, Any]:
     print("DEMO SCENARIO 1: Healthcare AI Assistant")
     print("=" * 70)
 
-    from core.multi_agent_communication import CommunicationProtocol, Agent, MessageType
+    from core.multi_agent_communication import CommunicationProtocol, Agent
     from core.real_time_fine_tuning import FineTuningEngine
 
     # 1. Initialise agents

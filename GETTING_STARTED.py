@@ -56,7 +56,7 @@ For testing without Redis:
 # STEP 3: Initialize the System
 # ==============================================================================
 
-from core.advanced_features import init_nova_memory_advanced, get_nova_memory_advanced
+from core.advanced_features import init_nova_memory_advanced
 
 # Initialize all advanced systems
 system = init_nova_memory_advanced()
@@ -487,7 +487,7 @@ After learning the basics:
 
 Essential Documentation:
 - QUICKSTART.md - Basic usage
-- README.md - Project overview  
+- README.md - Project overview
 - ADVANCED_FEATURES.md - Deep dive
 - IMPLEMENTATION_SUMMARY.md - Architecture
 - setup.py - Installation options

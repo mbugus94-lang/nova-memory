@@ -27,7 +27,6 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 try:
     from solana.rpc.api import Client
-    from solana.transaction import Transaction
     from solders.pubkey import Pubkey as PublicKey
     from solders.system_program import transfer, TransferParams
     import base58
@@ -166,7 +165,7 @@ class SolanaIntegration:
             lamports = int(amount_sol * 1_000_000_000)
 
             # Build instruction (transaction signing is caller's responsibility)
-            ix = transfer(TransferParams(
+            transfer(TransferParams(
                 from_pubkey=from_pubkey,
                 to_pubkey=to_pubkey,
                 lamports=lamports,
@@ -217,7 +216,7 @@ class SolanaIntegration:
             to_pubkey = PublicKey.from_string(customer_address)
             lamports = int(license_amount * 1_000_000_000)
 
-            ix = transfer(TransferParams(
+            transfer(TransferParams(
                 from_pubkey=from_pubkey,
                 to_pubkey=to_pubkey,
                 lamports=lamports,

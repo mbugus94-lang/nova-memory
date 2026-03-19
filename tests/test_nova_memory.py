@@ -139,7 +139,7 @@ class TestEnhancedMemoryStorage(unittest.TestCase):
 
     def test_compression_reduces_size(self):
         long_content = "A" * 10000
-        mid = self.storage.add_memory(long_content)
+        self.storage.add_memory(long_content)
         stats = self.storage.get_memory_stats()
         self.assertLess(stats["compressed_storage_bytes"], stats["total_storage_bytes"])
 
@@ -253,7 +253,6 @@ class TestWorkflowOrchestrationEngine(unittest.TestCase):
         self.assertIsNotNone(wf_id)
 
     def test_start_workflow_changes_status(self):
-        from core.workflow_orchestration import WorkflowStatus
         wf_id = self.engine.create_workflow(
             name="Status Test",
             description="",

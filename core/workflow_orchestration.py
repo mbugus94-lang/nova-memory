@@ -12,7 +12,6 @@ start_workflow(), ignoring declared dependencies.  Tasks are now only started
 if their dependency list is empty or all dependencies are already completed.
 """
 
-import json
 import logging
 import uuid
 from datetime import datetime, timezone
@@ -375,7 +374,6 @@ class WorkflowOrchestrationEngine:
 # Quick smoke-test
 # ---------------------------------------------------------------------------
 if __name__ == "__main__":
-    import time
 
     print("Nova Memory 2.0 — Workflow Orchestration Engine")
     print("=" * 60)

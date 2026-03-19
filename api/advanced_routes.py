@@ -3,8 +3,8 @@ Enhanced API Router for Advanced Nova Memory Features
 Includes new endpoints for all advanced features
 """
 
-from fastapi import APIRouter, HTTPException, Depends, Query
-from typing import List, Dict, Any, Optional
+from fastapi import APIRouter, HTTPException, Query
+from typing import Dict, Any, Optional
 import logging
 
 from core.redis_cache import get_redis_cache
@@ -59,14 +59,14 @@ async def semantic_search_memories(
 ):
     """
     Search memories by semantic similarity using embeddings
-    
+
     This finds conceptually similar memories even if they don't share keywords
     """
     search_engine = get_semantic_search()
-    
+
     if not search_engine.enabled:
         raise HTTPException(status_code=503, detail="Semantic search not available")
-    
+
     # In a real implementation, would fetch all memories and search them
     # For now, return example structure
     return {
@@ -81,10 +81,10 @@ async def semantic_search_memories(
 async def cluster_memories(num_clusters: int = Query(5, ge=1, le=50)):
     """Cluster memories by semantic similarity"""
     search_engine = get_semantic_search()
-    
+
     if not search_engine.enabled:
         raise HTTPException(status_code=503, detail="Semantic search not available")
-    
+
     return {
         "status": "ok",
         "num_clusters": num_clusters,
@@ -109,14 +109,14 @@ async def send_message(
     broker = get_message_broker()
     broker.register_agent(sender)
     broker.register_agent(recipient)
-    
+
     priority_map = {
         "low": MessagePriority.LOW,
         "normal": MessagePriority.NORMAL,
         "high": MessagePriority.HIGH,
         "critical": MessagePriority.CRITICAL,
     }
-    
+
     message = create_message(
         sender=sender,
         recipient=recipient,
@@ -125,12 +125,12 @@ async def send_message(
         message_type=MessageType.NOTIFICATION,
         priority=priority_map.get(priority, MessagePriority.NORMAL),
     )
-    
+
     success = broker.publish(message)
-    
+
     if not success:
         raise HTTPException(status_code=400, detail="Failed to send message")
-    
+
     return {
         "status": "ok",
         "message_id": message.id,
@@ -144,9 +144,9 @@ async def get_inbox(agent_id: str):
     """Get all messages in an agent's inbox"""
     broker = get_message_broker()
     broker.register_agent(agent_id)
-    
+
     messages = broker.receive_all(agent_id)
-    
+
     return {
         "agent_id": agent_id,
         "message_count": len(messages),
@@ -165,7 +165,7 @@ async def broadcast_event(
     broker = get_message_broker()
     broker.register_agent(sender)
     broker.subscribe(sender, topic)
-    
+
     count = broker.broadcast(
         create_message(
             sender=sender,
@@ -176,7 +176,7 @@ async def broadcast_event(
         ),
         topic,
     )
-    
+
     return {
         "status": "ok",
         "topic": topic,
@@ -191,7 +191,7 @@ async def subscribe_to_topic(agent_id: str, topic: str):
     broker = get_message_broker()
     broker.register_agent(agent_id)
     broker.subscribe(agent_id, topic)
-    
+
     return {
         "status": "ok",
         "agent_id": agent_id,
@@ -223,13 +223,13 @@ async def register_agent(metadata: Dict[str, Any]):
             capabilities=metadata.get("capabilities", []),
             tags=metadata.get("tags", []),
         )
-        
+
         registry = get_agent_registry()
         success = registry.register(agent_metadata)
-        
+
         if not success:
             raise HTTPException(status_code=400, detail="Failed to register agent")
-        
+
         return {
             "status": "ok",
             "agent_id": agent_metadata.agent_id,
@@ -254,7 +254,7 @@ async def search_agents(
         tag=tag,
         online_only=online_only,
     )
-    
+
     return {
         "results": [a.to_dict() for a in agents],
         "count": len(agents),
@@ -266,10 +266,10 @@ async def get_agent(agent_id: str):
     """Get agent details"""
     registry = get_agent_registry()
     agent = registry.get_agent(agent_id)
-    
+
     if not agent:
         raise HTTPException(status_code=404, detail="Agent not found")
-    
+
     return agent.to_dict()
 
 
@@ -278,10 +278,10 @@ async def agent_heartbeat(agent_id: str):
     """Send heartbeat to keep agent registered"""
     registry = get_agent_registry()
     success = registry.heartbeat(agent_id)
-    
+
     if not success:
         raise HTTPException(status_code=404, detail="Agent not found")
-    
+
     return {
         "status": "ok",
         "agent_id": agent_id,
@@ -306,19 +306,19 @@ async def get_auth_token(
 ):
     """Generate authentication token for an agent"""
     from core.security import Role
-    
+
     jwt_mgr = get_jwt_manager()
-    
+
     try:
         role = Role(role)
     except ValueError:
         raise HTTPException(status_code=400, detail=f"Invalid role: {role}")
-    
+
     token = jwt_mgr.create_token(agent_id, role)
-    
+
     if not token:
         raise HTTPException(status_code=500, detail="Failed to create token")
-    
+
     return {
         "token": token,
         "agent_id": agent_id,
@@ -336,7 +336,7 @@ async def get_audit_logs(
     """Get audit logs"""
     audit = get_audit_log()
     logs = audit.get_logs(actor=actor, action=action, limit=limit)
-    
+
     return {
         "logs": logs,
         "count": len(logs),
@@ -354,14 +354,14 @@ async def run_garbage_collection(
 ):
     """Run garbage collection on memories"""
     from core.memory_management import RetentionPolicy
-    
+
     policy = RetentionPolicy(
         delete_after_days=delete_after_days,
         archive_after_days=archive_after_days,
     )
-    
-    gc = MemoryGarbageCollector(policy)
-    
+
+    MemoryGarbageCollector(policy)
+
     # In real implementation, would get memories from database
     return {
         "status": "ok",
@@ -381,7 +381,7 @@ async def run_garbage_collection(
 async def health_check():
     """Comprehensive system health check"""
     advanced = get_nova_memory_advanced()
-    
+
     return {
         "status": "ok",
         "version": "2.0.0",
@@ -393,5 +393,5 @@ async def health_check():
 async def get_system_stats():
     """Get comprehensive system statistics"""
     advanced = get_nova_memory_advanced()
-    
+
     return advanced.get_system_stats()

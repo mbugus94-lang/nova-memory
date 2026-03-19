@@ -4,9 +4,7 @@ Verify Nova Memory 2.0 Three-Agent Setup
 Tests that all components are configured correctly for multi-agent coordination
 """
 
-import os
 import sys
-import json
 from pathlib import Path
 
 print("\n" + "="*70)
@@ -40,7 +38,7 @@ check(
 check(
     "Core modules exist",
     all([
-        Path(f"core/{m}.py").exists() 
+        Path(f"core/{m}.py").exists()
         for m in ["redis_cache", "agent_messaging", "security", "agent_registry"]
     ]),
     "Missing core modules"
@@ -65,19 +63,19 @@ check(
 if Path(".env.central").exists():
     with open(".env.central") as f:
         config = f.read()
-    
+
     check(
         "Redis host configured",
         "REDIS_HOST=127.0.0.1" in config,
         "Update REDIS_HOST to 127.0.0.1"
     )
-    
+
     check(
         "Database configured",
         "nova_memory_central.db" in config,
         "Update DATABASE_URL"
     )
-    
+
     check(
         "JWT secret configured",
         "JWT_SECRET_KEY=" in config,
@@ -163,7 +161,7 @@ if passed == total:
     print("  Agent 3: http://localhost:8003/docs")
 else:
     print(f"\n⚠ {total - passed} checks failed. Fix the issues above before starting.\n")
-    
+
     failed = [f"{name}: {msg}" for name, success, msg in results if not success and msg]
     if failed:
         print("Required fixes:")

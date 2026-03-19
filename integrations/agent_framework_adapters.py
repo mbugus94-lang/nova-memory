@@ -20,7 +20,6 @@ Each adapter works standalone even if the target framework is not installed
 — it simply falls back to the generic interface and logs a warning.
 """
 
-import json
 import logging
 import os
 import sys
@@ -97,7 +96,6 @@ class GenericMemoryAdapter:
 
 try:
     from langchain.memory import BaseMemory
-    from langchain.schema import BaseMessage
     _LANGCHAIN_AVAILABLE = True
 except ImportError:
     _LANGCHAIN_AVAILABLE = False
