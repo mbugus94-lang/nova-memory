@@ -299,7 +299,7 @@ class AuditLog:
     ) -> None:
         """Log an action"""
         entry = {
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
             "action": action,
             "actor": actor,
             "resource": resource,

@@ -11,6 +11,12 @@ import time
 import argparse
 from pathlib import Path
 
+# Fix Windows console encoding
+if sys.platform == 'win32':
+    import codecs
+    sys.stdout = codecs.getwriter('utf-8')(sys.stdout.buffer, 'strict')
+    sys.stderr = codecs.getwriter('utf-8')(sys.stderr.buffer, 'strict')
+
 def setup_agent(agent_id: str, port: int):
     """Setup and start a single agent"""
     

@@ -24,7 +24,7 @@ import json
 import logging
 import os
 import sys
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
 # Ensure project root is on path when running directly from integrations/
@@ -156,7 +156,7 @@ class LangChainMemoryAdapter(BaseMemory if _LANGCHAIN_AVAILABLE else object):
             self._history.append((human, ai))
             self._adapter.save(
                 content=f"Human: {human}\nAI: {ai}",
-                metadata={"type": "conversation_turn", "timestamp": datetime.utcnow().isoformat()},
+                metadata={"type": "conversation_turn", "timestamp": datetime.now(timezone.utc).isoformat()},
                 tags=["conversation", "langchain"],
             )
 

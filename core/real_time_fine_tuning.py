@@ -14,7 +14,7 @@ environment.  Install torch separately to unlock the neural fine-tuning path.
 import json
 import logging
 import os
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
@@ -170,7 +170,7 @@ class FineTuningEngine:
 
         Returns a dict with ``id`` and ``text``.
         """
-        mem_id = f"mem_{len(self.memory_texts)}_{datetime.utcnow().strftime('%Y%m%d%H%M%S')}"
+        mem_id = f"mem_{len(self.memory_texts)}_{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')}"
         embedding = self.embed_text(text)
         self.memory_embeddings.append(embedding)
         self.memory_texts.append({
@@ -178,7 +178,7 @@ class FineTuningEngine:
             "text": text,
             "embedding": embedding.tolist(),
             "metadata": metadata or {},
-            "created_at": datetime.utcnow().isoformat(),
+            "created_at": datetime.now(timezone.utc).isoformat(),
         })
         return {"id": mem_id, "text": text}
 
@@ -231,7 +231,7 @@ class FineTuningEngine:
             loss_val = float(abs(target - sim))
 
         stats = {
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
             "loss": round(loss_val, 6),
             "model_size": self.model_size,
             "mode": "torch" if _TORCH_AVAILABLE else "numpy",
@@ -273,7 +273,7 @@ class FineTuningEngine:
 
         losses = [self.fine_tune_on_interaction(i)["loss"] for i in interactions]
         return {
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
             "avg_loss": round(float(np.mean(losses)), 6),
             "min_loss": round(float(np.min(losses)), 6),
             "max_loss": round(float(np.max(losses)), 6),

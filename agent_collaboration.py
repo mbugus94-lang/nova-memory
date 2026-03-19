@@ -270,7 +270,7 @@ class AgentCollaboration:
 
             print(
                 f"[OK] Share created  id={share_id}  "
-                f"{from_agent} → {to_agent}  memory={memory_id}  level={access_level}"
+                f"{from_agent} -> {to_agent}  memory={memory_id}  level={access_level}"
             )
             return share_id
 
@@ -373,7 +373,7 @@ class AgentCollaboration:
                 conn.commit()
 
             print(
-                f"[OK] Bidirectional sync  {agent_a} ↔ {agent_b}  memory={shared_memory_id}"
+                f"[OK] Bidirectional sync  {agent_a} <-> {agent_b}  memory={shared_memory_id}"
             )
             return True
 

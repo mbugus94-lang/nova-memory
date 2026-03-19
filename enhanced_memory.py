@@ -16,7 +16,7 @@ import zlib
 import uuid
 import logging
 from contextlib import contextmanager
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -233,7 +233,7 @@ class EnhancedMemoryStorage:
                 "tags": json.loads(row["tags"]) if row["tags"] else None,
                 "author": row["author"],
                 "access_count": row["access_count"] + 1,
-                "last_accessed": datetime.utcnow().isoformat(),
+                "last_accessed": datetime.now(timezone.utc).isoformat(),
                 "version": row["version"],
                 "created_at": row["created_at"],
                 "updated_at": row["updated_at"],

@@ -1,5 +1,3 @@
-version: '3.9'
-
 services:
   nova-memory-api:
     build:
@@ -11,12 +9,18 @@ services:
     environment:
       - API_HOST=0.0.0.0
       - API_PORT=8000
-      - API_WORKERS=4
       - DATABASE_PATH=/app/data/nova_memory.db
       - DATABASE_BACKUP_PATH=/app/backups
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
-      - SOLANA_RPC_URL=${SOLANA_RPC_URL:-https://api.devnet.solana.com}
-      - SOLANA_NETWORK=${SOLANA_NETWORK:-devnet}
+      - ENVIRONMENT=${ENVIRONMENT:-production}
+      - NOVA_SECRET_KEY=${NOVA_SECRET_KEY}
+      - NOVA_ADMIN_USERNAME=${NOVA_ADMIN_USERNAME}
+      - NOVA_ADMIN_PASSWORD=${NOVA_ADMIN_PASSWORD}
+      - NOVA_AGENT_SECRET=${NOVA_AGENT_SECRET}
+      - CORS_ORIGINS=${CORS_ORIGINS:-["http://localhost:3000"]}
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - NOVA_CACHE_ENABLED=${NOVA_CACHE_ENABLED:-false}
     volumes:
       - ./data:/app/data
       - ./backups:/app/backups
@@ -28,28 +32,32 @@ services:
       timeout: 10s
       retries: 3
       start_period: 5s
+    depends_on:
+      redis:
+        condition: service_started
     networks:
       - nova-network
 
-  # Optional: Database management service
-  # Uncomment to add database UI (requires additional setup)
-  # adminer:
-  #   image: adminer
-  #   ports:
-  #     - "8080:8080"
-  #   networks:
-  #     - nova-network
-  #   depends_on:
-  #     - nova-memory-api
+  redis:
+    image: redis:7-alpine
+    container_name: nova-redis
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis_data:/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    networks:
+      - nova-network
 
 networks:
   nova-network:
     driver: bridge
 
 volumes:
-  nova_data:
-    driver: local
-  nova_backups:
-    driver: local
-  nova_logs:
+  redis_data:
     driver: local

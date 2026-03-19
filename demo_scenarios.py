@@ -19,7 +19,7 @@ Run:
 
 import json
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, List
 
 
@@ -86,7 +86,7 @@ def run_healthcare_demo() -> Dict[str, Any]:
     protocol.shared_memory.store_memory(
         memory_id="patient_123",
         content="Patient John Doe, 45 years old, diabetes type 2, allergic to penicillin",
-        metadata={"patient_id": "123", "last_updated": datetime.utcnow().isoformat()},
+        metadata={"patient_id": "123", "last_updated": datetime.now(timezone.utc).isoformat()},
     )
 
     patient_data = protocol.shared_memory.retrieve_memory("patient_123")
@@ -111,7 +111,7 @@ def run_healthcare_demo() -> Dict[str, Any]:
     protocol.shared_memory.store_memory(
         memory_id="lab_results_latest",
         content=f"Latest lab results: {json.dumps(new_lab)}",
-        metadata={"type": "lab_results", "date": datetime.utcnow().isoformat()},
+        metadata={"type": "lab_results", "date": datetime.now(timezone.utc).isoformat()},
     )
     print("   Step 3 — Lab results stored")
 
@@ -133,7 +133,7 @@ def run_healthcare_demo() -> Dict[str, Any]:
             "Consider adjusting insulin dosage if HbA1c exceeds 7.5%."
         ),
         "agent": "healthcare_agent",
-        "timestamp": datetime.utcnow().isoformat(),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
     }
     protocol.shared_memory.store_memory(
         memory_id="care_plan_latest",
@@ -217,7 +217,7 @@ def run_semiconductor_demo() -> Dict[str, Any]:
         "pressure": 1.18,
         "throughput": 94.5,
         "defect_rate": 0.18,
-        "timestamp": datetime.utcnow().isoformat(),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
     }
     protocol.shared_memory.store_memory(
         memory_id="sensor_reading_latest",
@@ -248,7 +248,7 @@ def run_semiconductor_demo() -> Dict[str, Any]:
         },
         "expected_improvement": "2% throughput increase, 0.06% defect reduction",
         "agent": "optimizer_agent",
-        "timestamp": datetime.utcnow().isoformat(),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
     }
     protocol.shared_memory.store_memory(
         memory_id="optimisation_latest",
@@ -338,7 +338,7 @@ def run_education_demo() -> Dict[str, Any]:
             "Video tutorials on derivatives",
             "One-on-one tutoring session",
         ],
-        "timestamp": datetime.utcnow().isoformat(),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
     }
     protocol.shared_memory.store_memory(
         memory_id="student_progress_latest",
@@ -370,7 +370,7 @@ def run_education_demo() -> Dict[str, Any]:
         ],
         "assessment": "Weekly quiz on derivatives",
         "agent": "teacher_agent",
-        "timestamp": datetime.utcnow().isoformat(),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
     }
     protocol.shared_memory.store_memory(
         memory_id="learning_plan_latest",

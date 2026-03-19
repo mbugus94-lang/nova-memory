@@ -5,7 +5,7 @@ Enables direct communication between agents with pub/sub and request/response pa
 
 import logging
 import json
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Dict, List, Any, Optional, Callable
 import uuid
 from enum import Enum
@@ -50,7 +50,7 @@ class Message:
     
     def __post_init__(self):
         if self.timestamp is None:
-            self.timestamp = datetime.utcnow().isoformat()
+            self.timestamp = datetime.now(timezone.utc).isoformat()
         if self.metadata is None:
             self.metadata = {}
     

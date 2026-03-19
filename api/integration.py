@@ -7,10 +7,13 @@ This file shows how to integrate all advanced features into your main FastAPI ap
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
+from pathlib import Path
+import os
 
 # Import advanced systems
 from core.advanced_features import init_nova_memory_advanced, get_nova_memory_advanced
 from api.advanced_routes import router as advanced_router
+from api.memory_routes import router as memory_router
 
 # Optional GraphQL support
 try:
@@ -19,7 +22,7 @@ try:
     GRAPHQL_AVAILABLE = True
 except ImportError:
     GRAPHQL_AVAILABLE = False
-    print("⚠ GraphQL not available - graphene or starlette integration not installed")
+    print("[WARNING] GraphQL not available - graphene or starlette integration not installed")
 
 # ==============================================================================
 # Lifecycle Management
@@ -32,33 +35,46 @@ async def lifespan(app: FastAPI):
     Handles initialization and cleanup of all advanced systems.
     """
     # Startup
-    print("🚀 Starting Nova Memory 2.0 Advanced Features...")
+    print("[STARTUP] Starting Nova Memory 2.0 Advanced Features...")
     try:
+        _load_env_files()
+
         # Initialize all advanced systems
-        system = init_nova_memory_advanced()
+        system = init_nova_memory_advanced(
+            redis_host=os.getenv("REDIS_HOST", "localhost"),
+            redis_port=_get_int_env("REDIS_PORT", 6379),
+            redis_db=_get_int_env("REDIS_DB", 0),
+            redis_password=os.getenv("REDIS_PASSWORD") or None,
+            cache_ttl=_get_int_env("REDIS_CACHE_TTL", 3600),
+            enable_cache=_get_bool_env("NOVA_CACHE_ENABLED", False),
+            enable_semantic_search=_get_bool_env("NOVA_ENABLE_SEMANTIC_SEARCH", False),
+            enable_encryption=_get_bool_env("NOVA_ENABLE_ENCRYPTION", False),
+            enable_messaging=_get_bool_env("NOVA_ENABLE_MESSAGING", True),
+            semantic_model=os.getenv("MODEL_NAME") or os.getenv("EMBEDDING_MODEL"),
+        )
         
         # Verify health
         health = system.health_check()
-        print(f"✓ System health: {health}")
+        print(f"[OK] System health: {health}")
         
         # Log stats
         stats = system.get_system_stats()
-        print(f"✓ System initialized with {len(stats)} subsystems")
+        print(f"[OK] System initialized with {len(stats)} subsystems")
         
     except Exception as e:
-        print(f"⚠ Warning during startup: {e}")
+        print(f"[WARNING] Error during startup: {e}")
         print("  Features may have reduced functionality")
     
     yield
     
     # Shutdown
-    print("🛑 Shutting down Nova Memory 2.0...")
+    print("[SHUTDOWN] Shutting down Nova Memory 2.0...")
     try:
         system = get_nova_memory_advanced()
         if system:
-            print("✓ Advanced features shutdown complete")
+            print("[OK] Advanced features shutdown complete")
     except Exception as e:
-        print(f"⚠ Warning during shutdown: {e}")
+        print(f"[WARNING] Error during shutdown: {e}")
 
 
 # ==============================================================================
@@ -78,10 +94,10 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Configure appropriately for production
+    allow_origins=["http://localhost:3000", "http://localhost:8000"],
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE"],
+    allow_headers=["Authorization", "Content-Type"],
 )
 
 # ==============================================================================
@@ -90,6 +106,7 @@ app.add_middleware(
 
 # Include advanced features router
 app.include_router(advanced_router)
+app.include_router(memory_router)
 
 # Include basic router if you have one
 # app.include_router(basic_router)
@@ -107,6 +124,51 @@ if GRAPHQL_AVAILABLE:
         )
     except Exception as e:
         print(f"⚠ GraphQL endpoint could not be mounted: {e}")
+
+# ==============================================================================
+# Environment helpers
+# ==============================================================================
+
+
+def _get_bool_env(name: str, default: bool = False) -> bool:
+    value = os.getenv(name)
+    if value is None:
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _get_int_env(name: str, default: int) -> int:
+    value = os.getenv(name)
+    if value is None:
+        return default
+    try:
+        return int(value)
+    except ValueError:
+        return default
+
+
+def _load_env_files() -> None:
+    project_root = Path(__file__).resolve().parents[1]
+    env_paths = [
+        project_root / ".env.central",
+        project_root / ".env",
+    ]
+
+    for env_path in env_paths:
+        if not env_path.exists():
+            continue
+        try:
+            for raw_line in env_path.read_text(encoding="utf-8").splitlines():
+                line = raw_line.strip()
+                if not line or line.startswith("#") or "=" not in line:
+                    continue
+                key, value = line.split("=", 1)
+                key = key.strip()
+                value = value.strip().strip('"').strip("'")
+                if key and key not in os.environ:
+                    os.environ[key] = value
+        except Exception as exc:
+            print(f"âš  Warning: failed to load {env_path}: {exc}")
 
 # ==============================================================================
 # Root Endpoints

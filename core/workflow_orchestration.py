@@ -15,7 +15,7 @@ if their dependency list is empty or all dependencies are already completed.
 import json
 import logging
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional
@@ -70,7 +70,7 @@ class Workflow:
     description:  str = ""
     status:       WorkflowStatus = WorkflowStatus.DRAFT
     tasks:        Dict[str, Task] = field(default_factory=dict)
-    created_at:   str = field(default_factory=lambda: datetime.utcnow().isoformat())
+    created_at:   str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
     started_at:   Optional[str] = None
     completed_at: Optional[str] = None
     metadata:     Dict[str, Any] = field(default_factory=dict)
@@ -165,7 +165,7 @@ class WorkflowOrchestrationEngine:
             return False
 
         workflow.status = WorkflowStatus.ACTIVE
-        workflow.started_at = datetime.utcnow().isoformat()
+        workflow.started_at = datetime.now(timezone.utc).isoformat()
         workflow.metadata["input_data"] = input_data or {}
 
         print(f"[OK] Workflow started  id={workflow_id}  name={workflow.name}")
@@ -232,7 +232,7 @@ class WorkflowOrchestrationEngine:
             return
 
         task.status = TaskStatus.IN_PROGRESS
-        task.start_time = datetime.utcnow().isoformat()
+        task.start_time = datetime.now(timezone.utc).isoformat()
 
         try:
             callback = self.task_callbacks.get(task.assigned_agent)
@@ -245,7 +245,7 @@ class WorkflowOrchestrationEngine:
                 }
 
             task.status = TaskStatus.COMPLETED
-            task.end_time = datetime.utcnow().isoformat()
+            task.end_time = datetime.now(timezone.utc).isoformat()
             print(f"[OK] Task completed  id={task_id}  name={task.name}")
 
             # Trigger downstream tasks
@@ -261,9 +261,9 @@ class WorkflowOrchestrationEngine:
         except Exception as exc:
             task.status = TaskStatus.FAILED
             task.error = str(exc)
-            task.end_time = datetime.utcnow().isoformat()
+            task.end_time = datetime.now(timezone.utc).isoformat()
             workflow.status = WorkflowStatus.FAILED
-            workflow.completed_at = datetime.utcnow().isoformat()
+            workflow.completed_at = datetime.now(timezone.utc).isoformat()
 
             cb = self.workflow_callbacks.get(workflow_id)
             if cb:
@@ -281,7 +281,7 @@ class WorkflowOrchestrationEngine:
         terminal = {TaskStatus.COMPLETED, TaskStatus.SKIPPED}
         if all(t.status in terminal for t in workflow.tasks.values()):
             workflow.status = WorkflowStatus.COMPLETED
-            workflow.completed_at = datetime.utcnow().isoformat()
+            workflow.completed_at = datetime.now(timezone.utc).isoformat()
             print(f"[OK] Workflow completed  id={workflow_id}  name={workflow.name}")
 
             cb = self.workflow_callbacks.get(workflow_id)

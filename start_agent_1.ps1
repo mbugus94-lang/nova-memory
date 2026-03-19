@@ -12,7 +12,7 @@ Write-Host "  Agent ID:       agent_001" -ForegroundColor Cyan
 Write-Host "  Agent Name:     Agent-1" -ForegroundColor Cyan
 Write-Host "  API Port:       8001" -ForegroundColor Cyan
 Write-Host "  Redis:          127.0.0.1:6379" -ForegroundColor Cyan
-Write-Host "  Database:       nova_memory_central.db" -ForegroundColor Cyan
+Write-Host "  Database:       C:\\Users\\DAVID\\.openclaw\\memory\\nova_memory_central.db" -ForegroundColor Cyan
 Write-Host "`nAccess at: http://localhost:8001/docs`n" -ForegroundColor Green
 
 # Load central configuration

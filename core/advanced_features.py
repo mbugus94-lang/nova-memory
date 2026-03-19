@@ -39,16 +39,33 @@ class NovaMemoryAdvanced:
         self,
         redis_host: str = "localhost",
         redis_port: int = 6379,
+        redis_db: int = 0,
+        redis_password: Optional[str] = None,
+        cache_ttl: int = 3600,
+        enable_cache: bool = True,
         enable_semantic_search: bool = True,
         enable_encryption: bool = True,
         enable_messaging: bool = True,
+        semantic_model: Optional[str] = None,
     ):
         """Initialize advanced features"""
-        self.cache = init_redis_cache(host=redis_host, port=redis_port)
-        self.semantic_search = init_semantic_search() if enable_semantic_search else None
-        self.message_broker = get_message_broker()
+        self.cache = init_redis_cache(
+            host=redis_host,
+            port=redis_port,
+            db=redis_db,
+            password=redis_password,
+            default_ttl=cache_ttl,
+            enabled=enable_cache,
+        )
+        semantic_model = semantic_model or "sentence-transformers/all-MiniLM-L6-v2"
+        self.semantic_search = (
+            init_semantic_search(model_name=semantic_model)
+            if enable_semantic_search
+            else None
+        )
+        self.message_broker = get_message_broker() if enable_messaging else None
         self.jwt_manager = get_jwt_manager()
-        self.encryption = get_encryption_manager()
+        self.encryption = get_encryption_manager() if enable_encryption else None
         self.audit_log = get_audit_log()
         self.attributes = get_attribute_manager()
         self.registry = get_agent_registry()
@@ -61,21 +78,25 @@ class NovaMemoryAdvanced:
     def get_system_stats(self) -> Dict[str, Any]:
         """Get comprehensive system statistics"""
         return {
-            "cache": self.cache.get_stats(),
-            "semantic_search": self.semantic_search.get_cache_stats() if self.semantic_search else None,
+            "cache": self.cache.get_stats() if self.cache else {"enabled": False},
+            "semantic_search": (
+                self.semantic_search.get_cache_stats() if self.semantic_search else None
+            ),
             "registry": self.registry.get_stats(),
-            "broker": self.message_broker.get_stats(),
+            "broker": self.message_broker.get_stats() if self.message_broker else None,
             "timestamp": __import__('datetime').datetime.now().isoformat(),
         }
     
     def health_check(self) -> Dict[str, bool]:
         """Check health of all components"""
         return {
-            "cache": self.cache.enabled,
-            "semantic_search": self.semantic_search.enabled if self.semantic_search else False,
-            "messaging": True,
+            "cache": self.cache.enabled if self.cache else False,
+            "semantic_search": (
+                self.semantic_search.enabled if self.semantic_search else False
+            ),
+            "messaging": self.message_broker is not None,
             "security": self.jwt_manager.available,
-            "encryption": self.encryption.available,
+            "encryption": self.encryption.available if self.encryption else False,
             "registry": True,
         }
 

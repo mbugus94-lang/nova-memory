@@ -11,94 +11,120 @@ Run with:
     uvicorn api.server:app --host 0.0.0.0 --port 8000 --reload
 """
 
+import sys
+import os
+# Add project root to sys.path to allow importing modules from root
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+
 import json
 import logging
+import os
 import sqlite3
 import uuid
 from contextlib import asynccontextmanager
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 import uvicorn
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Query, Depends, status, Header, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.trustedhost import TrustedHostMiddleware
+from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from pydantic import BaseModel, Field
+
+# Core Imports
+try:
+    from enhanced_memory import EnhancedMemoryStorage
+    from agent_collaboration import AgentCollaboration
+    from core.security import JWTManager, Role, Permission, verify_password, hash_password
+except ImportError as e:
+    # Fallback for when running from different directories
+    print(f"Import Error: {e}")
+    # Try local import if running as script from root
+    from enhanced_memory import EnhancedMemoryStorage
+    from agent_collaboration import AgentCollaboration
+    from core.security import JWTManager, Role, Permission, verify_password, hash_password
+
+from core.db import get_conn, get_db_path
+from core.migrations import run_migrations
+from core.rate_limiter import RateLimitMiddleware
 
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
-# Database helpers
+# Database & Managers
 # ---------------------------------------------------------------------------
 
-DB_PATH = Path("nova_memory.db")
+DB_PATH = get_db_path()
+
+# Instantiate Core Managers
+storage = EnhancedMemoryStorage(db_path=DB_PATH)
+collab = AgentCollaboration(db_path=DB_PATH)
+
+# Secret key: MUST be set in production
+_secret_key = os.getenv("NOVA_SECRET_KEY")
+if not _secret_key:
+    if os.getenv("ENVIRONMENT", "development").lower() == "production":
+        raise RuntimeError(
+            "NOVA_SECRET_KEY environment variable is required in production. "
+            "Generate one with: python -c \"import secrets; print(secrets.token_urlsafe(32))\""
+        )
+    _secret_key = "nova_dev_secret_DO_NOT_USE_IN_PRODUCTION"
+    logger.warning("Using insecure development secret key. Set NOVA_SECRET_KEY in production.")
+
+jwt_manager = JWTManager(secret_key=_secret_key, expiration_hours=24)
+
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="auth/login")
+
+
+# ---------------------------------------------------------------------------
+# User store (password-based auth)
+# ---------------------------------------------------------------------------
+
+def _get_admin_credentials() -> Dict[str, str]:
+    """Load admin credentials from environment or fail in production."""
+    username = os.getenv("NOVA_ADMIN_USERNAME")
+    password = os.getenv("NOVA_ADMIN_PASSWORD")
+
+    if not username or not password:
+        if os.getenv("ENVIRONMENT", "development").lower() == "production":
+            raise RuntimeError(
+                "NOVA_ADMIN_USERNAME and NOVA_ADMIN_PASSWORD must be set in production."
+            )
+        logger.warning("Using default admin credentials. Set NOVA_ADMIN_USERNAME/NOVA_ADMIN_PASSWORD.")
+        return {"username": "admin", "password_hash": "", "salt": ""}
+
+    pw_hash, salt = hash_password(password)
+    return {"username": username, "password_hash": pw_hash, "salt": salt}
+
+
+ADMIN_CREDENTIALS = _get_admin_credentials()
 
 
 def _get_conn() -> sqlite3.Connection:
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    return conn
+    """Get a raw connection for tables not managed by core classes."""
+    return get_conn(DB_PATH).__enter__()
 
+
+def _get_cors_origins() -> List[str]:
+    """Parse CORS origins from environment variable."""
+    raw = os.getenv("CORS_ORIGINS", '["*"]')
+    try:
+        origins = json.loads(raw)
+        if isinstance(origins, list):
+            return origins
+    except (json.JSONDecodeError, TypeError):
+        pass
+    return [o.strip() for o in raw.split(",") if o.strip()]
 
 def _init_db():
-    """Create all required tables on first run."""
-    conn = _get_conn()
-    cursor = conn.cursor()
-
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS memories (
-            id         TEXT PRIMARY KEY,
-            content    TEXT NOT NULL,
-            metadata   TEXT,
-            tags       TEXT,
-            author     TEXT,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-    """)
-
-    cursor.execute("""
-        CREATE VIRTUAL TABLE IF NOT EXISTS memories_fts
-        USING fts5(memory_id UNINDEXED, content, tags)
-    """)
-
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS agents (
-            id           TEXT PRIMARY KEY,
-            name         TEXT NOT NULL,
-            role         TEXT NOT NULL,
-            status       TEXT DEFAULT 'active',
-            capabilities TEXT,
-            created_at   TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-    """)
-
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS interactions (
-            id             TEXT PRIMARY KEY,
-            agent_id       TEXT,
-            user_message   TEXT NOT NULL,
-            agent_response TEXT NOT NULL,
-            user_feedback  TEXT,
-            loss           REAL,
-            created_at     TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-    """)
-
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS workflows (
-            id          TEXT PRIMARY KEY,
-            name        TEXT NOT NULL,
-            description TEXT,
-            status      TEXT DEFAULT 'active',
-            task_count  INTEGER DEFAULT 0,
-            created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-    """)
-
-    conn.commit()
-    conn.close()
-    logger.info("Database initialised at %s", DB_PATH)
+    """Run database migrations to ensure schema is up to date."""
+    applied = run_migrations(DB_PATH)
+    if applied:
+        logger.info("Applied %d database migration(s) to %s", applied, DB_PATH)
+    else:
+        logger.info("Database schema up to date at %s", DB_PATH)
 
 
 # ---------------------------------------------------------------------------
@@ -117,24 +143,53 @@ app = FastAPI(
         "Real-Time AI Agent Memory Management System. "
         "Store, search, and share memories across agents with full versioning."
     ),
-    version="2.0.0",
+    version="2.1.0",
     docs_url="/docs",
     redoc_url="/redoc",
     lifespan=lifespan,
 )
 
+_cors_origins = _get_cors_origins()
+if _cors_origins == ["*"]:
+    logger.warning("CORS is configured to allow all origins. Restrict CORS_ORIGINS in production.")
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=_cors_origins,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE"],
+    allow_headers=["Authorization", "Content-Type"],
 )
+
+# Rate limiting middleware (configurable via env vars)
+app.add_middleware(RateLimitMiddleware, db_path=DB_PATH)
+
+# ---------------------------------------------------------------------------
+# Security Dependency
+# ---------------------------------------------------------------------------
+
+async def get_current_user(token: str = Depends(oauth2_scheme)):
+    payload = jwt_manager.verify_token(token)
+    if not payload:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired token",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    return payload
+
+async def get_optional_user(token: Optional[str] = Depends(oauth2_scheme)):
+    if not token:
+        return None
+    return jwt_manager.verify_token(token)
 
 # ---------------------------------------------------------------------------
 # Pydantic schemas
 # ---------------------------------------------------------------------------
 
+class Token(BaseModel):
+    access_token: str
+    token_type: str
 
 class MemoryCreate(BaseModel):
     content: str = Field(..., min_length=1, description="Memory content text")
@@ -142,12 +197,10 @@ class MemoryCreate(BaseModel):
     tags: Optional[List[str]] = None
     author: Optional[str] = None
 
-
 class MemoryUpdate(BaseModel):
     content: Optional[str] = Field(None, min_length=1)
     metadata: Optional[Dict[str, Any]] = None
     tags: Optional[List[str]] = None
-
 
 class MemoryResponse(BaseModel):
     id: str
@@ -156,15 +209,23 @@ class MemoryResponse(BaseModel):
     tags: Optional[List[str]]
     author: Optional[str]
     created_at: str
-    updated_at: str
+    updated_at: Optional[str] = None
+    access_count: int = 0
 
+class ContextRequest(BaseModel):
+    query: str
+    limit: int = 5
+    agent_id: Optional[str] = None
+
+class ContextResponse(BaseModel):
+    context: str
+    sources: List[Dict[str, Any]]
 
 class InteractionCreate(BaseModel):
     agent_id: Optional[str] = None
     user_message: str = Field(..., min_length=1)
     agent_response: str = Field(..., min_length=1)
     user_feedback: Optional[str] = Field(None, pattern="^(positive|negative|neutral)$")
-
 
 class InteractionResponse(BaseModel):
     id: str
@@ -175,20 +236,17 @@ class InteractionResponse(BaseModel):
     loss: Optional[float]
     created_at: str
 
-
 class AgentCreate(BaseModel):
     id: str = Field(..., min_length=1)
     name: str = Field(..., min_length=1)
     role: str = Field(..., min_length=1)
     capabilities: List[str] = Field(default_factory=list)
 
-
 class AgentUpdate(BaseModel):
     name: Optional[str] = None
     role: Optional[str] = None
     status: Optional[str] = Field(None, pattern="^(active|idle|busy|offline)$")
     capabilities: Optional[List[str]] = None
-
 
 class AgentResponse(BaseModel):
     id: str
@@ -198,90 +256,140 @@ class AgentResponse(BaseModel):
     capabilities: List[str]
     created_at: str
 
+# Collaboration Schemas
+class SpaceCreate(BaseModel):
+    space_name: str
+    creator: str
+    members: Optional[List[str]] = None
+    permissions: Optional[Dict[str, Any]] = None
+
+class ShareMemoryRequest(BaseModel):
+    from_agent: str
+    to_agent: str
+    memory_id: str
+    access_level: str = "read"
+    expires_at: Optional[str] = None
 
 # ---------------------------------------------------------------------------
-# Root & health
+# Auth Endpoints
 # ---------------------------------------------------------------------------
 
+@app.post("/auth/login", response_model=Token, tags=["Auth"])
+async def login(form_data: OAuth2PasswordRequestForm = Depends()):
+    """Authenticate and receive a JWT token."""
+    # Verify against configured admin credentials
+    if form_data.username == ADMIN_CREDENTIALS["username"]:
+        if ADMIN_CREDENTIALS["password_hash"]:
+            # Production: verify against hashed password
+            if verify_password(form_data.password, ADMIN_CREDENTIALS["password_hash"], ADMIN_CREDENTIALS["salt"]):
+                access_token = jwt_manager.create_token(
+                    agent_id=form_data.username,
+                    role=Role.ADMIN,
+                    permissions=[Permission.ADMIN_ALL]
+                )
+                return {"access_token": access_token, "token_type": "bearer"}
+        else:
+            # Development fallback only (no password hash configured)
+            dev_password = os.getenv("NOVA_ADMIN_PASSWORD", "admin")
+            if form_data.password == dev_password:
+                access_token = jwt_manager.create_token(
+                    agent_id=form_data.username,
+                    role=Role.ADMIN,
+                    permissions=[Permission.ADMIN_ALL]
+                )
+                return {"access_token": access_token, "token_type": "bearer"}
+    
+    # Allow agents to self-authenticate with agent secret
+    agent_secret = os.getenv("NOVA_AGENT_SECRET", "nova_agent_secret")
+    if form_data.password == agent_secret:
+        access_token = jwt_manager.create_token(
+            agent_id=form_data.username,
+            role=Role.AGENT
+        )
+        return {"access_token": access_token, "token_type": "bearer"}
+
+    raise HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Incorrect username or password",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+
+# ---------------------------------------------------------------------------
+# System Endpoints
+# ---------------------------------------------------------------------------
 
 @app.get("/", tags=["System"])
 async def root():
     """API root — returns version and available endpoint groups."""
     return {
-        "name": "Nova Memory 2.0",
-        "version": "2.0.0",
+        "name": "Nova Memory 2.1",
+        "version": "2.1.0",
         "description": "Real-Time AI Agent Memory Management System",
         "docs": "/docs",
-        "endpoints": {
-            "health": "/health",
-            "memories": "/memories",
-            "interactions": "/interactions",
-            "agents": "/agents",
-            "workflows": "/workflows",
-        },
+        "features": [
+            "Enhanced Compression & Versioning",
+            "Auto-Capture Interactions",
+            "Multi-Agent Collaboration",
+            "JWT Authentication"
+        ]
     }
-
 
 @app.get("/health", tags=["System"])
 async def health_check():
-    """Liveness probe — confirms the API and database are reachable."""
+    """Liveness probe."""
+    stats = storage.get_memory_stats()
     return {
         "status": "healthy",
-        "version": "2.0.0",
-        "timestamp": datetime.utcnow().isoformat() + "Z",
-        "database": "connected" if DB_PATH.exists() else "disconnected",
+        "timestamp": datetime.now(timezone.utc).isoformat() + "Z",
+        "database": "connected",
+        "stats": stats
     }
 
-
 # ---------------------------------------------------------------------------
-# Memory endpoints
+# Memory Endpoints (Enhanced)
 # ---------------------------------------------------------------------------
-
 
 @app.post("/memories", response_model=MemoryResponse, status_code=201, tags=["Memories"])
-async def create_memory(memory: MemoryCreate):
-    """Store a new memory.  Returns the created memory object."""
-    # FIX: was using Path.read_text() on a binary SQLite file — replaced with uuid4
-    memory_id = str(uuid.uuid4())
-    now = datetime.utcnow().isoformat()
-
-    conn = _get_conn()
-    try:
-        cursor = conn.cursor()
-        cursor.execute(
-            """
-            INSERT INTO memories (id, content, metadata, tags, author, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                memory_id,
-                memory.content,
-                json.dumps(memory.metadata) if memory.metadata else None,
-                json.dumps(memory.tags) if memory.tags else None,
-                memory.author,
-                now,
-                now,
-            ),
-        )
-        tags_str = " ".join(memory.tags) if memory.tags else ""
-        cursor.execute(
-            "INSERT INTO memories_fts (memory_id, content, tags) VALUES (?, ?, ?)",
-            (memory_id, memory.content, tags_str),
-        )
-        conn.commit()
-    finally:
-        conn.close()
-
-    return MemoryResponse(
-        id=memory_id,
+async def create_memory(memory: MemoryCreate, current_user: dict = Depends(get_current_user)):
+    """Store a new memory (Authenticated)."""
+    # Use the authenticated user as author if not provided
+    author = memory.author or current_user.get("agent_id")
+    
+    mid = storage.add_memory(
         content=memory.content,
         metadata=memory.metadata,
         tags=memory.tags,
-        author=memory.author,
-        created_at=now,
-        updated_at=now,
+        author=author
     )
+    
+    if not mid:
+        raise HTTPException(status_code=500, detail="Failed to store memory")
+        
+    # Fetch back to return response
+    mem_data = storage.get_memory(mid)
+    return MemoryResponse(**mem_data)
 
+@app.post("/memories/context", response_model=ContextResponse, tags=["Memories"])
+async def get_memory_context(request: ContextRequest):
+    """
+    Swift Retrieval: Get consolidated context for an agent query.
+    Returns a single string formatted for LLM injection.
+    """
+    results = storage.search_memories(
+        query=request.query,
+        limit=request.limit
+    )
+    
+    context_parts = []
+    for idx, res in enumerate(results, 1):
+        context_parts.append(f"[Memory {idx}] (Score: High): {res['content']}")
+    
+    consolidated_context = "\n\n".join(context_parts)
+    
+    return ContextResponse(
+        context=consolidated_context,
+        sources=results
+    )
 
 @app.get("/memories", response_model=List[MemoryResponse], tags=["Memories"])
 async def list_memories(
@@ -291,183 +399,64 @@ async def list_memories(
     limit: int = Query(20, ge=1, le=200),
     offset: int = Query(0, ge=0),
 ):
-    """
-    List or search memories.
-
-    - Pass ``query`` for full-text search (FTS5).
-    - Pass ``tags`` as a comma-separated list to filter by tag.
-    - Supports pagination via ``limit`` / ``offset``.
-    """
-    conn = _get_conn()
-    try:
-        cursor = conn.cursor()
-
-        if query:
-            cursor.execute(
-                """
-                SELECT m.id, m.content, m.metadata, m.tags, m.author,
-                       m.created_at, m.updated_at
-                FROM memories m
-                JOIN memories_fts f ON f.memory_id = m.id
-                WHERE memories_fts MATCH ?
-                ORDER BY rank
-                LIMIT ? OFFSET ?
-                """,
-                (query, limit, offset),
-            )
-        else:
-            where_parts: List[str] = []
-            params: List[Any] = []
-            if author:
-                where_parts.append("author = ?")
-                params.append(author)
-            where_sql = ("WHERE " + " AND ".join(where_parts)) if where_parts else ""
-            cursor.execute(
-                f"""
-                SELECT id, content, metadata, tags, author, created_at, updated_at
-                FROM memories {where_sql}
-                ORDER BY created_at DESC
-                LIMIT ? OFFSET ?
-                """,
-                (*params, limit, offset),
-            )
-
-        rows = cursor.fetchall()
-    finally:
-        conn.close()
-
-    tag_filter = [t.strip() for t in tags.split(",")] if tags else None
-    results = []
-    for row in rows:
-        row_tags: List[str] = json.loads(row["tags"]) if row["tags"] else []
-        if tag_filter and not all(t in row_tags for t in tag_filter):
-            continue
-        results.append(
-            MemoryResponse(
-                id=row["id"],
-                content=row["content"],
-                metadata=json.loads(row["metadata"]) if row["metadata"] else None,
-                tags=row_tags,
-                author=row["author"],
-                created_at=row["created_at"],
-                updated_at=row["updated_at"],
-            )
-        )
-    return results
-
+    """List or search memories."""
+    tag_list = [t.strip() for t in tags.split(",")] if tags else None
+    
+    if query:
+        results = storage.search_memories(query, tags=tag_list, limit=limit)
+    else:
+        results = storage.list_memories(tags=tag_list, author=author, limit=limit, offset=offset)
+        
+    return [MemoryResponse(**r) for r in results]
 
 @app.get("/memories/{memory_id}", response_model=MemoryResponse, tags=["Memories"])
 async def get_memory(memory_id: str):
     """Retrieve a single memory by ID."""
-    conn = _get_conn()
-    try:
-        cursor = conn.cursor()
-        cursor.execute("SELECT * FROM memories WHERE id = ?", (memory_id,))
-        row = cursor.fetchone()
-    finally:
-        conn.close()
-
-    if not row:
+    mem_data = storage.get_memory(memory_id)
+    if not mem_data:
         raise HTTPException(status_code=404, detail="Memory not found")
+    return MemoryResponse(**mem_data)
 
-    return MemoryResponse(
-        id=row["id"],
-        content=row["content"],
-        metadata=json.loads(row["metadata"]) if row["metadata"] else None,
-        tags=json.loads(row["tags"]) if row["tags"] else None,
-        author=row["author"],
-        created_at=row["created_at"],
-        updated_at=row["updated_at"],
+@app.patch("/memories/{memory_id}", tags=["Memories"])
+async def update_memory(memory_id: str, update: MemoryUpdate, current_user: dict = Depends(get_current_user)):
+    """Partially update a memory (Authenticated)."""
+    success = storage.update_memory(
+        memory_id=memory_id,
+        content=update.content,
+        metadata=update.metadata,
+        tags=update.tags
     )
-
-
-@app.patch("/memories/{memory_id}", response_model=MemoryResponse, tags=["Memories"])
-async def update_memory(memory_id: str, update: MemoryUpdate):
-    """Partially update a memory's content, metadata, or tags."""
-    conn = _get_conn()
-    try:
-        cursor = conn.cursor()
-        cursor.execute("SELECT * FROM memories WHERE id = ?", (memory_id,))
-        row = cursor.fetchone()
-        if not row:
-            raise HTTPException(status_code=404, detail="Memory not found")
-
-        updates: List[str] = ["updated_at = ?"]
-        params: List[Any] = [datetime.utcnow().isoformat()]
-
-        if update.content is not None:
-            updates.append("content = ?")
-            params.append(update.content)
-            tags_str = " ".join(update.tags) if update.tags else (
-                " ".join(json.loads(row["tags"])) if row["tags"] else ""
-            )
-            cursor.execute(
-                "UPDATE memories_fts SET content = ?, tags = ? WHERE memory_id = ?",
-                (update.content, tags_str, memory_id),
-            )
-        if update.metadata is not None:
-            updates.append("metadata = ?")
-            params.append(json.dumps(update.metadata))
-        if update.tags is not None:
-            updates.append("tags = ?")
-            params.append(json.dumps(update.tags))
-
-        params.append(memory_id)
-        cursor.execute(
-            f"UPDATE memories SET {', '.join(updates)} WHERE id = ?", params
-        )
-        conn.commit()
-
-        cursor.execute("SELECT * FROM memories WHERE id = ?", (memory_id,))
-        updated = cursor.fetchone()
-    finally:
-        conn.close()
-
-    return MemoryResponse(
-        id=updated["id"],
-        content=updated["content"],
-        metadata=json.loads(updated["metadata"]) if updated["metadata"] else None,
-        tags=json.loads(updated["tags"]) if updated["tags"] else None,
-        author=updated["author"],
-        created_at=updated["created_at"],
-        updated_at=updated["updated_at"],
-    )
-
+    
+    if not success:
+        raise HTTPException(status_code=404, detail="Memory not found or update failed")
+        
+    mem_data = storage.get_memory(memory_id)
+    return MemoryResponse(**mem_data)
 
 @app.delete("/memories/{memory_id}", status_code=204, tags=["Memories"])
-async def delete_memory(memory_id: str):
-    """Permanently delete a memory."""
-    conn = _get_conn()
-    try:
-        cursor = conn.cursor()
-        cursor.execute("DELETE FROM memories_fts WHERE memory_id = ?", (memory_id,))
-        cursor.execute("DELETE FROM memories WHERE id = ?", (memory_id,))
-        deleted = cursor.rowcount
-        conn.commit()
-    finally:
-        conn.close()
-
-    if not deleted:
+async def delete_memory(memory_id: str, current_user: dict = Depends(get_current_user)):
+    """Permanently delete a memory (Authenticated)."""
+    success = storage.delete_memory(memory_id)
+    if not success:
         raise HTTPException(status_code=404, detail="Memory not found")
 
-
 # ---------------------------------------------------------------------------
-# Interaction endpoints
+# Interaction Endpoints (Auto-Capture)
 # ---------------------------------------------------------------------------
-
 
 @app.post("/interactions", response_model=InteractionResponse, status_code=201, tags=["Interactions"])
-async def create_interaction(interaction: InteractionCreate):
+async def create_interaction(
+    interaction: InteractionCreate, 
+    auto_capture: bool = Query(False, description="Automatically save as memory")
+):
     """
-    Log an agent interaction for fine-tuning.
-
-    The ``loss`` field is a placeholder; integrate with the real-time
-    fine-tuning engine to populate it with actual training loss.
+    Log an interaction.
+    If `auto_capture=True`, stores the interaction as an episodic memory.
     """
     interaction_id = str(uuid.uuid4())
-    now = datetime.utcnow().isoformat()
+    now = datetime.now(timezone.utc).isoformat()
 
-    # Deterministic but non-crashing loss placeholder
+    # Loss placeholder logic
     loss = round(0.05 + (abs(hash(interaction.user_message)) % 100) / 2000, 4)
     if interaction.user_feedback == "positive":
         loss *= 0.5
@@ -497,6 +486,16 @@ async def create_interaction(interaction: InteractionCreate):
     finally:
         conn.close()
 
+    # Auto-Capture Logic
+    if auto_capture:
+        content = f"Interaction with Agent {interaction.agent_id}:\nUser: {interaction.user_message}\nAgent: {interaction.agent_response}"
+        storage.add_memory(
+            content=content,
+            metadata={"type": "interaction", "interaction_id": interaction_id, "loss": loss},
+            tags=["interaction", "episodic", f"agent:{interaction.agent_id}"],
+            author=interaction.agent_id or "system"
+        )
+
     return InteractionResponse(
         id=interaction_id,
         agent_id=interaction.agent_id,
@@ -507,13 +506,12 @@ async def create_interaction(interaction: InteractionCreate):
         created_at=now,
     )
 
-
 @app.get("/interactions", response_model=List[InteractionResponse], tags=["Interactions"])
 async def list_interactions(
     agent_id: Optional[str] = None,
     limit: int = Query(20, ge=1, le=200),
 ):
-    """List recent interactions, optionally filtered by agent."""
+    """List recent interactions."""
     conn = _get_conn()
     try:
         cursor = conn.cursor()
@@ -543,16 +541,62 @@ async def list_interactions(
         for row in rows
     ]
 
+# ---------------------------------------------------------------------------
+# Collaboration Endpoints (New)
+# ---------------------------------------------------------------------------
+
+@app.post("/collaboration/spaces", tags=["Collaboration"])
+async def create_collaborative_space(space: SpaceCreate, current_user: dict = Depends(get_current_user)):
+    """Create a new collaborative space."""
+    # Ensure creator is consistent
+    creator = space.creator or current_user.get("agent_id")
+    
+    space_id = collab.create_collaborative_space(
+        space_name=space.space_name,
+        creator=creator,
+        members=space.members,
+        permissions=space.permissions
+    )
+    
+    if not space_id:
+        raise HTTPException(status_code=400, detail="Failed to create space (name might be taken)")
+        
+    return {"space_id": space_id, "status": "created"}
+
+@app.get("/collaboration/spaces", tags=["Collaboration"])
+async def list_spaces(agent_id: str):
+    """List spaces an agent is a member of."""
+    return collab.list_collaborative_spaces(agent_id)
+
+@app.post("/collaboration/share", tags=["Collaboration"])
+async def share_memory(share: ShareMemoryRequest, current_user: dict = Depends(get_current_user)):
+    """Share a memory with another agent."""
+    share_id = collab.share_memory_with_agent(
+        from_agent=share.from_agent,
+        to_agent=share.to_agent,
+        memory_id=share.memory_id,
+        access_level=share.access_level,
+        expires_at=share.expires_at
+    )
+    
+    if not share_id:
+        raise HTTPException(status_code=400, detail="Failed to share memory")
+        
+    return {"share_id": share_id, "status": "shared"}
+
+@app.get("/collaboration/shares/{agent_id}", tags=["Collaboration"])
+async def get_shares(agent_id: str):
+    """Get active shares for an agent."""
+    return collab.get_agent_memory_shares(agent_id)
 
 # ---------------------------------------------------------------------------
-# Agent endpoints
+# Agent Endpoints (Legacy Wrapper)
 # ---------------------------------------------------------------------------
-
 
 @app.post("/agents", response_model=AgentResponse, status_code=201, tags=["Agents"])
-async def create_agent(agent: AgentCreate):
-    """Register a new agent in the system."""
-    now = datetime.utcnow().isoformat()
+async def create_agent(agent: AgentCreate, current_user: dict = Depends(get_current_user)):
+    """Register a new agent."""
+    now = datetime.now(timezone.utc).isoformat()
     conn = _get_conn()
     try:
         cursor = conn.cursor()
@@ -579,10 +623,9 @@ async def create_agent(agent: AgentCreate):
         created_at=now,
     )
 
-
 @app.get("/agents", response_model=List[AgentResponse], tags=["Agents"])
 async def list_agents(status: Optional[str] = None):
-    """List all registered agents, optionally filtered by status."""
+    """List all registered agents."""
     conn = _get_conn()
     try:
         cursor = conn.cursor()
@@ -606,99 +649,9 @@ async def list_agents(status: Optional[str] = None):
         for row in rows
     ]
 
-
-@app.get("/agents/{agent_id}", response_model=AgentResponse, tags=["Agents"])
-async def get_agent(agent_id: str):
-    """Retrieve a specific agent by ID."""
-    conn = _get_conn()
-    try:
-        cursor = conn.cursor()
-        cursor.execute("SELECT * FROM agents WHERE id = ?", (agent_id,))
-        row = cursor.fetchone()
-    finally:
-        conn.close()
-
-    if not row:
-        raise HTTPException(status_code=404, detail="Agent not found")
-
-    return AgentResponse(
-        id=row["id"],
-        name=row["name"],
-        role=row["role"],
-        status=row["status"],
-        capabilities=json.loads(row["capabilities"]) if row["capabilities"] else [],
-        created_at=row["created_at"],
-    )
-
-
-@app.patch("/agents/{agent_id}", response_model=AgentResponse, tags=["Agents"])
-async def update_agent(agent_id: str, update: AgentUpdate):
-    """Update an agent's name, role, status, or capabilities."""
-    conn = _get_conn()
-    try:
-        cursor = conn.cursor()
-        cursor.execute("SELECT * FROM agents WHERE id = ?", (agent_id,))
-        row = cursor.fetchone()
-        if not row:
-            raise HTTPException(status_code=404, detail="Agent not found")
-
-        updates: List[str] = []
-        params: List[Any] = []
-        if update.name is not None:
-            updates.append("name = ?")
-            params.append(update.name)
-        if update.role is not None:
-            updates.append("role = ?")
-            params.append(update.role)
-        if update.status is not None:
-            updates.append("status = ?")
-            params.append(update.status)
-        if update.capabilities is not None:
-            updates.append("capabilities = ?")
-            params.append(json.dumps(update.capabilities))
-
-        if updates:
-            params.append(agent_id)
-            cursor.execute(
-                f"UPDATE agents SET {', '.join(updates)} WHERE id = ?", params
-            )
-            conn.commit()
-
-        cursor.execute("SELECT * FROM agents WHERE id = ?", (agent_id,))
-        updated = cursor.fetchone()
-    finally:
-        conn.close()
-
-    return AgentResponse(
-        id=updated["id"],
-        name=updated["name"],
-        role=updated["role"],
-        status=updated["status"],
-        capabilities=json.loads(updated["capabilities"]) if updated["capabilities"] else [],
-        created_at=updated["created_at"],
-    )
-
-
-@app.delete("/agents/{agent_id}", status_code=204, tags=["Agents"])
-async def delete_agent(agent_id: str):
-    """Remove an agent from the registry."""
-    conn = _get_conn()
-    try:
-        cursor = conn.cursor()
-        cursor.execute("DELETE FROM agents WHERE id = ?", (agent_id,))
-        deleted = cursor.rowcount
-        conn.commit()
-    finally:
-        conn.close()
-
-    if not deleted:
-        raise HTTPException(status_code=404, detail="Agent not found")
-
-
 # ---------------------------------------------------------------------------
-# Workflow endpoints
+# Workflow Endpoints (Stub/Passthrough)
 # ---------------------------------------------------------------------------
-
 
 @app.get("/workflows", tags=["Workflows"])
 async def list_workflows():
@@ -724,59 +677,6 @@ async def list_workflows():
             for row in rows
         ]
     }
-
-
-@app.post("/workflows", status_code=201, tags=["Workflows"])
-async def create_workflow(body: Dict[str, Any]):
-    """Register a new workflow definition."""
-    wf_id = str(uuid.uuid4())
-    now = datetime.utcnow().isoformat()
-    conn = _get_conn()
-    try:
-        cursor = conn.cursor()
-        cursor.execute(
-            """
-            INSERT INTO workflows (id, name, description, status, task_count, created_at)
-            VALUES (?, ?, ?, 'active', ?, ?)
-            """,
-            (
-                wf_id,
-                body.get("name", "Unnamed Workflow"),
-                body.get("description", ""),
-                len(body.get("tasks", [])),
-                now,
-            ),
-        )
-        conn.commit()
-    finally:
-        conn.close()
-
-    return {"id": wf_id, "status": "created", "created_at": now}
-
-
-@app.post("/workflows/{workflow_id}/execute", tags=["Workflows"])
-async def execute_workflow(workflow_id: str, input_data: Dict[str, Any]):
-    """Trigger execution of a workflow (stub — integrate with WorkflowOrchestrationEngine)."""
-    conn = _get_conn()
-    try:
-        cursor = conn.cursor()
-        cursor.execute("SELECT * FROM workflows WHERE id = ?", (workflow_id,))
-        row = cursor.fetchone()
-    finally:
-        conn.close()
-
-    if not row:
-        raise HTTPException(status_code=404, detail="Workflow not found")
-
-    return {
-        "success": True,
-        "workflow_id": workflow_id,
-        "workflow_name": row["name"],
-        "status": "completed",
-        "tasks_completed": row["task_count"],
-        "timestamp": datetime.utcnow().isoformat() + "Z",
-    }
-
 
 # ---------------------------------------------------------------------------
 # Entry point

@@ -151,7 +151,8 @@ class TestEnhancedMemoryStorage(unittest.TestCase):
 class TestAgentCollaboration(unittest.TestCase):
 
     def setUp(self):
-        _, self.db_path = tempfile.mkstemp(suffix=".db")
+        self.db_fd, self.db_path = tempfile.mkstemp(suffix=".db")
+        os.close(self.db_fd)
         os.unlink(self.db_path)
         from agent_collaboration import AgentCollaboration
         self.collab = AgentCollaboration(db_path=self.db_path)
@@ -416,7 +417,8 @@ class TestFineTuningEngine(unittest.TestCase):
 class TestAgentFrameworkAdapters(unittest.TestCase):
 
     def setUp(self):
-        _, self.db_path = tempfile.mkstemp(suffix=".db")
+        self.db_fd, self.db_path = tempfile.mkstemp(suffix=".db")
+        os.close(self.db_fd)
         os.unlink(self.db_path)
 
     def tearDown(self):
