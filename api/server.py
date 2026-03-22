@@ -54,11 +54,26 @@ logger = logging.getLogger(__name__)
 # Database & Managers
 # ---------------------------------------------------------------------------
 
-DB_PATH = get_db_path()
+# Lazy initialization - managers are created on first access
+_storage: Optional[EnhancedMemoryStorage] = None
+_collab: Optional[AgentCollaboration] = None
 
-# Instantiate Core Managers
-storage = EnhancedMemoryStorage(db_path=DB_PATH)
-collab = AgentCollaboration(db_path=DB_PATH)
+
+def _get_storage() -> EnhancedMemoryStorage:
+    """Get or create the storage instance lazily."""
+    global _storage
+    if _storage is None:
+        _storage = EnhancedMemoryStorage(db_path=get_db_path())
+    return _storage
+
+
+def _get_collab() -> AgentCollaboration:
+    """Get or create the collaboration instance lazily."""
+    global _collab
+    if _collab is None:
+        _collab = AgentCollaboration(db_path=get_db_path())
+    return _collab
+
 
 # Secret key: MUST be set in production
 _secret_key = os.getenv("NOVA_SECRET_KEY")
@@ -103,7 +118,7 @@ ADMIN_CREDENTIALS = _get_admin_credentials()
 @contextmanager
 def _get_conn():
     """Get a raw connection for tables not managed by core classes."""
-    with get_conn(DB_PATH) as conn:
+    with get_conn(get_db_path()) as conn:
         yield conn
 
 
@@ -120,11 +135,11 @@ def _get_cors_origins() -> List[str]:
 
 def _init_db():
     """Run database migrations to ensure schema is up to date."""
-    applied = run_migrations(DB_PATH)
+    applied = run_migrations(get_db_path())
     if applied:
-        logger.info("Applied %d database migration(s) to %s", applied, DB_PATH)
+        logger.info("Applied %d database migration(s) to %s", applied, get_db_path())
     else:
-        logger.info("Database schema up to date at %s", DB_PATH)
+        logger.info("Database schema up to date at %s", get_db_path())
 
 
 # ---------------------------------------------------------------------------
@@ -162,7 +177,7 @@ app.add_middleware(
 )
 
 # Rate limiting middleware (configurable via env vars)
-app.add_middleware(RateLimitMiddleware, db_path=DB_PATH)
+app.add_middleware(RateLimitMiddleware, db_path=get_db_path())
 
 # ---------------------------------------------------------------------------
 # Security Dependency
@@ -337,7 +352,7 @@ async def root():
 @app.get("/health", tags=["System"])
 async def health_check():
     """Liveness probe."""
-    stats = storage.get_memory_stats()
+    stats = _get_storage().get_memory_stats()
     return {
         "status": "healthy",
         "timestamp": datetime.now(timezone.utc).isoformat() + "Z",
@@ -355,6 +370,7 @@ async def create_memory(memory: MemoryCreate, current_user: dict = Depends(get_c
     # Use the authenticated user as author if not provided
     author = memory.author or current_user.get("agent_id")
 
+    storage = _get_storage()
     mid = storage.add_memory(
         content=memory.content,
         metadata=memory.metadata,
@@ -375,6 +391,7 @@ async def get_memory_context(request: ContextRequest):
     Swift Retrieval: Get consolidated context for an agent query.
     Returns a single string formatted for LLM injection.
     """
+    storage = _get_storage()
     results = storage.search_memories(
         query=request.query,
         limit=request.limit
@@ -400,6 +417,7 @@ async def list_memories(
     offset: int = Query(0, ge=0),
 ):
     """List or search memories."""
+    storage = _get_storage()
     tag_list = [t.strip() for t in tags.split(",")] if tags else None
 
     if query:
@@ -412,7 +430,7 @@ async def list_memories(
 @app.get("/memories/{memory_id}", response_model=MemoryResponse, tags=["Memories"])
 async def get_memory(memory_id: str):
     """Retrieve a single memory by ID."""
-    mem_data = storage.get_memory(memory_id)
+    mem_data = _get_storage().get_memory(memory_id)
     if not mem_data:
         raise HTTPException(status_code=404, detail="Memory not found")
     return MemoryResponse(**mem_data)
@@ -420,6 +438,7 @@ async def get_memory(memory_id: str):
 @app.patch("/memories/{memory_id}", tags=["Memories"])
 async def update_memory(memory_id: str, update: MemoryUpdate, current_user: dict = Depends(get_current_user)):
     """Partially update a memory (Authenticated)."""
+    storage = _get_storage()
     success = storage.update_memory(
         memory_id=memory_id,
         content=update.content,
@@ -436,7 +455,7 @@ async def update_memory(memory_id: str, update: MemoryUpdate, current_user: dict
 @app.delete("/memories/{memory_id}", status_code=204, tags=["Memories"])
 async def delete_memory(memory_id: str, current_user: dict = Depends(get_current_user)):
     """Permanently delete a memory (Authenticated)."""
-    success = storage.delete_memory(memory_id)
+    success = _get_storage().delete_memory(memory_id)
     if not success:
         raise HTTPException(status_code=404, detail="Memory not found")
 
@@ -486,7 +505,7 @@ async def create_interaction(
     # Auto-Capture Logic
     if auto_capture:
         content = f"Interaction with Agent {interaction.agent_id}:\nUser: {interaction.user_message}\nAgent: {interaction.agent_response}"
-        storage.add_memory(
+        _get_storage().add_memory(
             content=content,
             metadata={"type": "interaction", "interaction_id": interaction_id, "loss": loss},
             tags=["interaction", "episodic", f"agent:{interaction.agent_id}"],
@@ -545,6 +564,7 @@ async def create_collaborative_space(space: SpaceCreate, current_user: dict = De
     # Ensure creator is consistent
     creator = space.creator or current_user.get("agent_id")
 
+    collab = _get_collab()
     space_id = collab.create_collaborative_space(
         space_name=space.space_name,
         creator=creator,
@@ -560,12 +580,12 @@ async def create_collaborative_space(space: SpaceCreate, current_user: dict = De
 @app.get("/collaboration/spaces", tags=["Collaboration"])
 async def list_spaces(agent_id: str):
     """List spaces an agent is a member of."""
-    return collab.list_collaborative_spaces(agent_id)
+    return _get_collab().list_collaborative_spaces(agent_id)
 
 @app.post("/collaboration/share", tags=["Collaboration"])
 async def share_memory(share: ShareMemoryRequest, current_user: dict = Depends(get_current_user)):
     """Share a memory with another agent."""
-    share_id = collab.share_memory_with_agent(
+    share_id = _get_collab().share_memory_with_agent(
         from_agent=share.from_agent,
         to_agent=share.to_agent,
         memory_id=share.memory_id,
@@ -581,7 +601,7 @@ async def share_memory(share: ShareMemoryRequest, current_user: dict = Depends(g
 @app.get("/collaboration/shares/{agent_id}", tags=["Collaboration"])
 async def get_shares(agent_id: str):
     """Get active shares for an agent."""
-    return collab.get_agent_memory_shares(agent_id)
+    return _get_collab().get_agent_memory_shares(agent_id)
 
 # ---------------------------------------------------------------------------
 # Agent Endpoints (Legacy Wrapper)
