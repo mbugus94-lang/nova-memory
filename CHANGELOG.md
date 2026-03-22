@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.2] - 2026-03-22
+
+### Security
+- Fixed 29 known vulnerabilities in Python dependencies:
+  - starlette>=0.47.2 (CVE-2024-47874, CVE-2025-54121)
+  - python-multipart>=0.0.18 (CVE-2024-53981, CVE-2026-24486)
+  - python-jose>=3.4.0 (PYSEC-2024-233, PYSEC-2024-232)
+  - pillow>=12.1.1 (CVE-2026-25990)
+- Updated requirements.txt with explicit security patch versions
+
+## [1.0.1] - 2026-03-22
+
 ### Fixed
 - CI/CD workflow updated from Node.js to Python (appropriate for FastAPI project)
 - Added Python 3.10, 3.11, 3.12 to testing matrix
