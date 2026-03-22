@@ -103,7 +103,8 @@ ADMIN_CREDENTIALS = _get_admin_credentials()
 @contextmanager
 def _get_conn():
     """Get a raw connection for tables not managed by core classes."""
-    yield from get_conn(DB_PATH)
+    with get_conn(DB_PATH) as conn:
+        yield conn
 
 
 def _get_cors_origins() -> List[str]:
