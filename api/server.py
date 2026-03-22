@@ -21,7 +21,7 @@ import logging
 import os
 import sqlite3
 import uuid
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, contextmanager
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
@@ -100,9 +100,10 @@ def _get_admin_credentials() -> Dict[str, str]:
 ADMIN_CREDENTIALS = _get_admin_credentials()
 
 
-def _get_conn() -> sqlite3.Connection:
+@contextmanager
+def _get_conn():
     """Get a raw connection for tables not managed by core classes."""
-    return get_conn(DB_PATH).__enter__()
+    yield from get_conn(DB_PATH)
 
 
 def _get_cors_origins() -> List[str]:
@@ -461,8 +462,7 @@ async def create_interaction(
     elif interaction.user_feedback == "negative":
         loss *= 1.5
 
-    conn = _get_conn()
-    try:
+    with _get_conn() as conn:
         cursor = conn.cursor()
         cursor.execute(
             """
@@ -481,8 +481,6 @@ async def create_interaction(
             ),
         )
         conn.commit()
-    finally:
-        conn.close()
 
     # Auto-Capture Logic
     if auto_capture:
@@ -510,8 +508,7 @@ async def list_interactions(
     limit: int = Query(20, ge=1, le=200),
 ):
     """List recent interactions."""
-    conn = _get_conn()
-    try:
+    with _get_conn() as conn:
         cursor = conn.cursor()
         if agent_id:
             cursor.execute(
@@ -523,8 +520,6 @@ async def list_interactions(
                 "SELECT * FROM interactions ORDER BY created_at DESC LIMIT ?", (limit,)
             )
         rows = cursor.fetchall()
-    finally:
-        conn.close()
 
     return [
         InteractionResponse(
@@ -595,8 +590,7 @@ async def get_shares(agent_id: str):
 async def create_agent(agent: AgentCreate, current_user: dict = Depends(get_current_user)):
     """Register a new agent."""
     now = datetime.now(timezone.utc).isoformat()
-    conn = _get_conn()
-    try:
+    with _get_conn() as conn:
         cursor = conn.cursor()
         try:
             cursor.execute(
@@ -609,8 +603,6 @@ async def create_agent(agent: AgentCreate, current_user: dict = Depends(get_curr
             conn.commit()
         except sqlite3.IntegrityError:
             raise HTTPException(status_code=409, detail="Agent ID already exists")
-    finally:
-        conn.close()
 
     return AgentResponse(
         id=agent.id,
@@ -624,16 +616,13 @@ async def create_agent(agent: AgentCreate, current_user: dict = Depends(get_curr
 @app.get("/agents", response_model=List[AgentResponse], tags=["Agents"])
 async def list_agents(status: Optional[str] = None):
     """List all registered agents."""
-    conn = _get_conn()
-    try:
+    with _get_conn() as conn:
         cursor = conn.cursor()
         if status:
             cursor.execute("SELECT * FROM agents WHERE status = ?", (status,))
         else:
             cursor.execute("SELECT * FROM agents ORDER BY created_at DESC")
         rows = cursor.fetchall()
-    finally:
-        conn.close()
 
     return [
         AgentResponse(
@@ -654,13 +643,10 @@ async def list_agents(status: Optional[str] = None):
 @app.get("/workflows", tags=["Workflows"])
 async def list_workflows():
     """List all registered workflows."""
-    conn = _get_conn()
-    try:
+    with _get_conn() as conn:
         cursor = conn.cursor()
         cursor.execute("SELECT * FROM workflows ORDER BY created_at DESC")
         rows = cursor.fetchall()
-    finally:
-        conn.close()
 
     return {
         "workflows": [
