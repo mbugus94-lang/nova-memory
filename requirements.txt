@@ -1,13 +1,31 @@
+# Core Framework
 fastapi>=0.115.11,<1.0
 uvicorn[standard]>=0.34.0,<1.0
 pydantic>=2.10.0,<3.0
+starlette>=0.46.1
+
+# Database & ORM
+aiosqlite>=0.21.0
+sqlalchemy>=2.0.0
+alembic>=1.13.0
+
+# Security & Authentication
 pyjwt>=2.10.0
 cryptography>=44.0.0
-aiosqlite>=0.21.0
-
-# Security updates (critical)
-starlette>=0.46.1
-python-multipart>=0.0.20
 python-jose>=3.4.0
-pillow>=11.1.0
+python-multipart>=0.0.20
+
+# Caching & Storage
+redis>=5.0.0
+
+# Data Processing
+numpy>=1.26.0
+
+# HTTP Client
 httpx>=0.28.0
+
+# Image Processing
+pillow>=11.1.0
+
+# Utilities
+python-dotenv>=1.0.0
