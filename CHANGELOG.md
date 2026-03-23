@@ -1,15 +1,22 @@
 # Changelog
 
-All notable changes to Nova Memory will be documented in this file.
+All notable changes to this project will be documented in this file.
+
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
+and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+## [Unreleased]
 
 ## [2.1.1] - 2026-03-23
 
-### Security & Maintenance
+### Changed
+- Updated FastAPI to >=0.115.12
+- Updated Uvicorn to >=0.34.1
+- Updated Pydantic to >=2.11.0
+- Updated SQLAlchemy to >=2.0.40
+- Updated cryptography to >=44.0.2
+- Updated python-jose to >=3.5.0
 - Updated all dependencies to latest stable versions
-- Updated FastAPI to 0.115.11 for latest security patches
-- Updated cryptography to 44.0.0 for improved security
-- Updated starlette to 0.46.1 for latest bug fixes
-- Updated httpx to 0.28.0 for improved HTTP handling
 
 ## [2.1.0] - 2025
 
