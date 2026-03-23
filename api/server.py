@@ -47,6 +47,7 @@ except ImportError as e:
 from core.db import get_conn, get_db_path
 from core.migrations import run_migrations
 from core.rate_limiter import RateLimitMiddleware
+from .health_routes import router as health_router
 
 logger = logging.getLogger(__name__)
 
@@ -695,3 +696,4 @@ if __name__ == "__main__":
         reload=True,
         log_level="info",
     )
+app.include_router(health_router)
