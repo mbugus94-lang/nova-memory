@@ -1,10 +1,13 @@
-fastapi>=0.115.0,<1.0
-uvicorn[standard]>=0.30.0,<1.0
-pydantic>=2.5.0,<3.0
-pydantic-settings>=2.2.0
-pyjwt>=2.8.0
-cryptography>=43.0.0
-aiosqlite>=0.20.0
-python-multipart>=0.0.9
-python-jose[cryptography]>=3.3.0
-passlib[bcrypt]>=1.7.4
+fastapi>=0.115.11,<1.0
+uvicorn[standard]>=0.34.0,<1.0
+pydantic>=2.10.0,<3.0
+pyjwt>=2.10.0
+cryptography>=44.0.0
+aiosqlite>=0.21.0
+
+# Security updates (critical)
+starlette>=0.46.1
+python-multipart>=0.0.20
+python-jose>=3.4.0
+pillow>=11.1.0
+httpx>=0.28.0
