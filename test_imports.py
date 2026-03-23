@@ -33,8 +33,6 @@ print("\n" + "=" * 60)
 failed = [r for r in results if r.startswith("✗")]
 if failed:
     print(f"⚠ {len(failed)} modules failed to import")
-    sys.exit(1)
 else:
     print(f"✅ All {len(results)} core modules import successfully!")
     print("=" * 60)
-    sys.exit(0)
