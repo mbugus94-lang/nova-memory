@@ -23,6 +23,11 @@ os.unlink(_test_db)
 os.environ["DATABASE_PATH"] = _test_db
 
 from fastapi.testclient import TestClient
+from core.migrations import run_migrations
+from core.db import get_db_path
+
+# Run migrations on the test database before any tests
+run_migrations(get_db_path())
 
 
 def _get_client():
