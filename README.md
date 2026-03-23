@@ -30,6 +30,24 @@ python -m api.server
 - `POST /collaboration/spaces`
 - `POST /auth/login`
 
+## 🔍 Health Checks
+
+The API includes a health check endpoint for monitoring:
+
+```bash
+curl http://localhost:8000/health
+```
+
+Response:
+```json
+{
+  "status": "ok",
+  "timestamp": "2025-01-15T10:30:00Z",
+  "uptime_seconds": 3600,
+  "version": "2.1.0"
+}
+```
+
 ## Quick Start (Legacy / Agent-Specific)
 
 1. Install dependencies:
