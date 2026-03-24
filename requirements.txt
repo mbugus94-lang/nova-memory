@@ -2,7 +2,7 @@
 fastapi>=0.115.12,<1.0
 uvicorn[standard]>=0.34.1,<1.0
 pydantic>=2.11.0,<3.0
-starlette>=0.46.1
+starlette>=0.46.1,<1.0
 
 # Database & ORM
 aiosqlite>=0.21.0
@@ -19,7 +19,7 @@ python-multipart>=0.0.21
 redis>=5.0.0
 
 # Data Processing
-numpy>=1.26.0
+numpy>=1.26.0,<2.0
 
 # HTTP Client
 httpx>=0.28.1
