@@ -29,3 +29,5 @@ pillow>=11.2.0
 
 # Utilities
 python-dotenv>=1.0.0
+certifi>=2025.1.31
+charset-normalizer>=3.4.6
