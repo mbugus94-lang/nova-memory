@@ -1,63 +1,24 @@
+version: '3.8'
+
 services:
-  nova-memory-api:
+  app:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: nova-memory-api
+    container_name: nova-memory
+    restart: unless-stopped
     ports:
-      - "${API_PORT:-8000}:8000"
+      - "8000:8000"
     environment:
-      - API_HOST=0.0.0.0
-      - API_PORT=8000
-      - DATABASE_PATH=/app/data/nova_memory.db
-      - DATABASE_BACKUP_PATH=/app/backups
-      - LOG_LEVEL=${LOG_LEVEL:-INFO}
-      - ENVIRONMENT=${ENVIRONMENT:-production}
+      - ENVIRONMENT=production
       - NOVA_SECRET_KEY=${NOVA_SECRET_KEY}
-      - NOVA_ADMIN_USERNAME=${NOVA_ADMIN_USERNAME}
+      - NOVA_MEMORY_DB_PATH=/app/data/nova_memory.db
       - NOVA_ADMIN_PASSWORD=${NOVA_ADMIN_PASSWORD}
-      - NOVA_AGENT_SECRET=${NOVA_AGENT_SECRET}
-      - CORS_ORIGINS=${CORS_ORIGINS:-["http://localhost:3000"]}
-      - REDIS_HOST=redis
-      - REDIS_PORT=6379
-      - NOVA_CACHE_ENABLED=${NOVA_CACHE_ENABLED:-false}
     volumes:
       - ./data:/app/data
-      - ./backups:/app/backups
-      - ./logs:/app/logs
-    restart: unless-stopped
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 5s
-    depends_on:
-      redis:
-        condition: service_started
-    networks:
-      - nova-network
-
-  redis:
-    image: redis:7-alpine
-    container_name: nova-redis
-    ports:
-      - "${REDIS_PORT:-6379}:6379"
-    volumes:
-      - redis_data:/data
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 10s
-      timeout: 5s
-      retries: 3
-    networks:
-      - nova-network
-
-networks:
-  nova-network:
-    driver: bridge
-
-volumes:
-  redis_data:
-    driver: local
+      start_period: 40s

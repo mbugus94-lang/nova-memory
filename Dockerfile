@@ -1,39 +1,48 @@
-FROM python:3.12-slim
+# Multi-stage build for Nova Memory
+FROM python:3.11-slim AS builder
 
-# Set working directory
 WORKDIR /app
 
-# Set environment variables
-ENV PYTHONUNBUFFERED=1 \
-    PYTHONDONTWRITEBYTECODE=1 \
-    PIP_NO_CACHE_DIR=1 \
-    ENVIRONMENT=production
-
-# Install system dependencies
+# Install build dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc \
-    curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy requirements files
+# Copy requirements
 COPY requirements.txt .
 
 # Install Python dependencies
-RUN pip install --upgrade pip setuptools wheel && \
-    pip install -r requirements.txt
+RUN pip install --no-cache-dir --user -r requirements.txt
 
-# Copy project files
-COPY . .
+# Production stage
+FROM python:3.11-slim AS production
 
-# Create necessary directories
-RUN mkdir -p /app/backups /app/logs /app/data
+WORKDIR /app
 
-# Expose API port
+# Create non-root user
+RUN groupadd -r nova && useradd -r -g nova nova
+
+# Copy installed packages from builder
+COPY --from=builder /root/.local /home/nova/.local
+
+# Copy application code
+COPY --chown=nova:nova . .
+
+# Set environment variables
+ENV PATH=/home/nova/.local/bin:$PATH \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PYTHONPATH=/app
+
+# Switch to non-root user
+USER nova
+
+# Expose port
 EXPOSE 8000
 
 # Health check
-HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD curl -f http://localhost:8000/health || exit 1
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+  CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')" || exit 1
 
-# Default command: start API server
+# Start the application
 CMD ["python", "-m", "api.server"]
