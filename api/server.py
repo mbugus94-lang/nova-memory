@@ -92,6 +92,22 @@ if not _secret_key:
 
 jwt_manager = JWTManager(secret_key=_secret_key, expiration_hours=24)
 
+
+def _get_agent_secret() -> str:
+    """Load the agent secret from environment or fail in production."""
+    agent_secret = os.getenv("NOVA_AGENT_SECRET")
+    if agent_secret:
+        return agent_secret
+
+    if os.getenv("ENVIRONMENT", "development").lower() == "production":
+        raise RuntimeError("NOVA_AGENT_SECRET must be set in production.")
+
+    logger.warning("Using default agent secret. Set NOVA_AGENT_SECRET in production.")
+    return "nova_agent_secret"
+
+
+AGENT_SECRET = _get_agent_secret()
+
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="auth/login")
 
 
@@ -137,6 +153,7 @@ def _get_cors_origins() -> List[str]:
         pass
     return [o.strip() for o in raw.split(",") if o.strip()]
 
+
 def _init_db():
     """Run database migrations to ensure schema is up to date."""
     applied = run_migrations(get_db_path())
@@ -170,6 +187,8 @@ app = FastAPI(
 
 _cors_origins = _get_cors_origins()
 if _cors_origins == ["*"]:
+    if os.getenv("ENVIRONMENT", "development").lower() == "production":
+        raise RuntimeError("CORS_ORIGINS cannot be '*' in production.")
     logger.warning("CORS is configured to allow all origins. Restrict CORS_ORIGINS in production.")
 
 app.add_middleware(
@@ -319,8 +338,7 @@ async def login(form_data: OAuth2PasswordRequestForm = Depends()):
                 return {"access_token": access_token, "token_type": "bearer"}
 
     # Allow agents to self-authenticate with agent secret
-    agent_secret = os.getenv("NOVA_AGENT_SECRET", "nova_agent_secret")
-    if form_data.password == agent_secret:
+    if form_data.password == AGENT_SECRET:
         access_token = jwt_manager.create_token(
             agent_id=form_data.username,
             role=Role.AGENT
@@ -359,7 +377,7 @@ async def health_check():
     stats = _get_storage().get_memory_stats()
     return {
         "status": "healthy",
-        "timestamp": datetime.now(timezone.utc).isoformat() + "Z",
+        "timestamp": datetime.now(timezone.utc).isoformat(),
         "database": "connected",
         "stats": stats
     }

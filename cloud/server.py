@@ -18,6 +18,7 @@ import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import logging
+import json
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -26,6 +27,17 @@ from core.db import init_db, get_db_path
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+
+def _get_cors_origins():
+    raw = os.getenv("CORS_ORIGINS", '["http://localhost:3000"]')
+    try:
+        origins = json.loads(raw)
+        if isinstance(origins, list):
+            return origins
+    except (json.JSONDecodeError, TypeError):
+        pass
+    return [origin.strip() for origin in raw.split(",") if origin.strip()]
 
 
 @asynccontextmanager
@@ -47,9 +59,13 @@ app = FastAPI(
     openapi_url="/api/openapi.json",
 )
 
+cors_origins = _get_cors_origins()
+if cors_origins == ["*"] and os.getenv("ENVIRONMENT", "development").lower() == "production":
+    raise RuntimeError("CORS_ORIGINS cannot be '*' in production.")
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

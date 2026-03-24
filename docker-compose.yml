@@ -10,10 +10,20 @@ services:
     ports:
       - "8000:8000"
     environment:
-      - ENVIRONMENT=production
+      - API_HOST=0.0.0.0
+      - API_PORT=8000
+      - API_WORKERS=${API_WORKERS:-1}
+      - ENVIRONMENT=${ENVIRONMENT:-production}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
       - NOVA_SECRET_KEY=${NOVA_SECRET_KEY}
       - NOVA_MEMORY_DB_PATH=/app/data/nova_memory.db
+      - DATABASE_BACKUP_PATH=/app/backups
       - NOVA_ADMIN_PASSWORD=${NOVA_ADMIN_PASSWORD}
+      - NOVA_AGENT_SECRET=${NOVA_AGENT_SECRET}
+      - CORS_ORIGINS=${CORS_ORIGINS:-["http://localhost:3000","http://127.0.0.1:3000"]}
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - NOVA_CACHE_ENABLED=${NOVA_CACHE_ENABLED:-false}
     volumes:
       - ./data:/app/data
     healthcheck:
@@ -22,3 +32,8 @@ services:
       timeout: 10s
       retries: 3
       start_period: 40s
+
+  redis:
+    image: redis:7-alpine
+    container_name: nova-memory-redis
+    restart: unless-stopped
