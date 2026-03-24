@@ -1,17 +1,9 @@
-# Git
-.git
-.gitignore
-.gitattributes
-
 # Python
-__pycache__
+__pycache__/
 *.py[cod]
 *$py.class
 *.so
 .Python
-env/
-venv/
-ENV/
 build/
 develop-eggs/
 dist/
@@ -28,38 +20,49 @@ wheels/
 .installed.cfg
 *.egg
 
-# Testing
-.pytest_cache
-.coverage
-htmlcov/
-.tox/
-.hypothesis/
+# Virtual environments
+venv/
+ENV/
+env/
+.venv
 
 # IDEs
 .vscode/
 .idea/
 *.swp
 *.swo
-*~
-.DS_Store
 
-# Project
-nova_memory.db
-nova_memory.db-shm
-nova_memory.db-wal
+# Database (mount as volume instead)
 *.db
 *.sqlite
+*.sqlite3
+
+# Environment files
 .env
 .env.local
 .env.*.local
 
-# Documentation
-docs/_build/
-site/
-
-# Misc
-*.log
+# Logs
 logs/
-backups/
-data/
-.cache/
+*.log
+
+# Testing
+.coverage
+htmlcov/
+.pytest_cache/
+.tox/
+
+# Git
+.git/
+.gitignore
+
+# OS
+.DS_Store
+Thumbs.db
+
+# CI/CD
+.github/workflows/
+
+# Documentation (keep README)
+*.md
+!README.md
