@@ -77,6 +77,7 @@ def _get_collab() -> AgentCollaboration:
 
 
 # Secret key: MUST be set in production
+import secrets as secrets_module
 _secret_key = os.getenv("NOVA_SECRET_KEY")
 if not _secret_key:
     if os.getenv("ENVIRONMENT", "development").lower() == "production":
@@ -84,8 +85,10 @@ if not _secret_key:
             "NOVA_SECRET_KEY environment variable is required in production. "
             "Generate one with: python -c \"import secrets; print(secrets.token_urlsafe(32))\""
         )
-    _secret_key = "nova_dev_secret_DO_NOT_USE_IN_PRODUCTION"
-    logger.warning("Using insecure development secret key. Set NOVA_SECRET_KEY in production.")
+    # Generate a random secret for development (will change on restart)
+    _secret_key = secrets_module.token_urlsafe(64)
+    logger.warning("NOVA_SECRET_KEY not set. Using generated development secret (will change on restart).")
+    logger.warning("Set NOVA_SECRET_KEY environment variable for consistent sessions.")
 
 jwt_manager = JWTManager(secret_key=_secret_key, expiration_hours=24)
 
