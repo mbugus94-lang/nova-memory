@@ -260,8 +260,10 @@ class TestCollaborationEndpoints(unittest.TestCase):
         cls.headers = _auth_headers(cls.client)
 
     def test_create_space(self):
+        import uuid
+        unique_name = f"Test Space {uuid.uuid4().hex[:8]}"
         resp = self.client.post("/collaboration/spaces", json={
-            "space_name": "Test Space",
+            "space_name": unique_name,
             "creator": "agent-1",
             "members": ["agent-2"],
         }, headers=self.headers)
