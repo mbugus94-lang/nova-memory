@@ -18,6 +18,31 @@
 Centralized memory storage for OpenClaw multi-agent deployments.
 
 ## What It Does
+
+## Installation
+
+1. Clone the repository:
+```bash
+git clone https://github.com/mbugus94-lang/nova-memory.git
+cd nova-memory
+```
+
+2. Create a virtual environment (recommended):
+```bash
+python -m venv venv
+source venv/bin/activate  # On Windows: venv\Scripts\activate
+```
+
+3. Install dependencies:
+```bash
+pip install -r requirements.txt
+```
+
+4. Copy the environment variables file:
+```bash
+cp .env.example .env
+# Edit .env with your configuration
+```
 - Shared key-value memory store for agents
 - SQLite persistence with optional Redis cache
 - Lightweight defaults that fit low-resource machines
