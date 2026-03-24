@@ -1,4 +1,19 @@
-# Nova Memory 2.0
+# Nova Memory 2.1 - AI Agent Memory Management
+
+<p align="center">
+  <strong>Centralized memory storage for multi-agent AI deployments</strong><br>
+  <em>Shared key-value store with SQLite persistence and optional Redis cache</em>
+</p>
+
+<p align="center">
+  <img src="https://img.shields.io/badge/Version-2.1.0-blue" alt="Version">
+  <img src="https://img.shields.io/badge/Python-3.10+-blue?logo=python&logoColor=white" alt="Python">
+  <img src="https://img.shields.io/badge/License-Other-yellow" alt="License">
+  <img src="https://img.shields.io/github/actions/workflow/status/mbugus94-lang/nova-memory/ci.yml" alt="CI Status">
+  <img src="https://img.shields.io/badge/FastAPI-009688?logo=fastapi&logoColor=white" alt="FastAPI">
+</p>
+
+---
 
 Centralized memory storage for OpenClaw multi-agent deployments.
 
