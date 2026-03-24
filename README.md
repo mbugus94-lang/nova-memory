@@ -9,7 +9,7 @@
   <img src="https://img.shields.io/badge/Version-2.1.0-blue" alt="Version">
   <img src="https://img.shields.io/badge/Python-3.10+-blue?logo=python&logoColor=white" alt="Python">
   <img src="https://img.shields.io/badge/License-Other-yellow" alt="License">
-  <img src="https://img.shields.io/github/actions/workflow/status/mbugus94-lang/nova-memory/ci.yml" alt="CI Status">
+  <img src="[[Image 1: unavailable (https://img.shields.io/github/actions/workflow/status/mbugus94-lang/nova-memory/ci.yml)]]" alt="CI Status">
   <img src="https://img.shields.io/badge/FastAPI-009688?logo=fastapi&logoColor=white" alt="FastAPI">
 </p>
 
@@ -17,9 +17,17 @@
 
 Centralized memory storage for OpenClaw multi-agent deployments.
 
-## What It Does
+## ✨ What It Does
 
-## Installation
+- **Shared Key-Value Memory Store** - Agents can share data seamlessly
+- **SQLite Persistence** - Data survives restarts
+- **Optional Redis Cache** - For high-performance deployments
+- **Lightweight Defaults** - Fits low-resource machines out of the box
+- **OpenClaw Skill Integration** - Via `/api/v2/memory/*` endpoints
+
+---
+
+## 🚀 Installation
 
 1. Clone the repository:
 ```bash
@@ -43,12 +51,10 @@ pip install -r requirements.txt
 cp .env.example .env
 # Edit .env with your configuration
 ```
-- Shared key-value memory store for agents
-- SQLite persistence with optional Redis cache
-- Lightweight defaults that fit low-resource machines
-- OpenClaw skill integration via `/api/v2/memory/*`
 
-## Nova Memory v2.1 (Enhanced Central Server)
+---
+
+## 🏢 Nova Memory v2.1 (Enhanced Central Server)
 
 For robust multi-agent deployments, run the central server which supports:
 - **Enhanced Storage:** Compression, Versioning, Access Tracking.
@@ -70,6 +76,8 @@ python -m api.server
 - `POST /collaboration/spaces`
 - `POST /auth/login`
 
+---
+
 ## 🔍 Health Checks
 
 The API includes a health check endpoint for monitoring:
@@ -88,7 +96,9 @@ Response:
 }
 ```
 
-## Quick Start (Legacy / Agent-Specific)
+---
+
+## ⚡ Quick Start (Legacy / Agent-Specific)
 
 1. Install dependencies:
 ```bash
@@ -106,7 +116,9 @@ curl http://localhost:8001/health
 curl http://localhost:8001/api/v2/memory/list
 ```
 
-## Low Resource Defaults
+---
+
+## ⚙️ Low Resource Defaults
 
 By default, `.env.central` disables heavy features:
 - `NOVA_CACHE_ENABLED=false`
@@ -115,7 +127,9 @@ By default, `.env.central` disables heavy features:
 
 Enable any feature by setting it to `true` in `.env.central`.
 
-## OpenClaw Integration
+---
+
+## 🔗 OpenClaw Integration
 
 Each OpenClaw agent should use the Nova Memory skill and point to its local API port:
 
@@ -124,26 +138,95 @@ Each OpenClaw agent should use the Nova Memory skill and point to its local API 
 - Agent 3: `http://localhost:8003`
 
 Update the skill config at:
-`C:\Users\DAVID\clawd\skills\nova-memory\nova-memory.config.json`
-`C:\Users\DAVID\openclaw-beta\skills\nova-memory\nova-memory.config.json`
-`C:\Users\DAVID\openclaw-gamma\skills\nova-memory\nova-memory.config.json`
+```
+C:\Users\DAVID\clawd\skills\nova-memory\nova-memory.config.json
+C:\Users\DAVID\openclaw-beta\skills\nova-memory\nova-memory.config.json
+C:\Users\DAVID\openclaw-gamma\skills\nova-memory\nova-memory.config.json
+```
 
-## API Endpoints (OpenClaw Skill)
+---
 
-- `POST /api/v2/memory/store`
-- `GET /api/v2/memory/retrieve/{key}`
-- `POST /api/v2/memory/search`
-- `GET /api/v2/memory/list`
-- `DELETE /api/v2/memory/delete/{key}`
+## 📚 API Endpoints (OpenClaw Skill)
 
-## Config Files
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/v2/memory/store` | POST | Store a memory |
+| `/api/v2/memory/retrieve/{key}` | GET | Retrieve a memory by key |
+| `/api/v2/memory/search` | POST | Search memories |
+| `/api/v2/memory/list` | GET | List all memories |
+| `/api/v2/memory/delete/{key}` | DELETE | Delete a memory |
 
-- `.env.central` shared config for all agents
-- `.env.example` template
-- `nova-memory.config.json` OpenClaw skill config
+---
 
-## Notes
+## 📁 Config Files
+
+- `.env.central` - Shared config for all agents
+- `.env.example` - Environment template
+- `nova-memory.config.json` - OpenClaw skill config
+
+---
+
+## 🐛 Troubleshooting
+
+### Common Issues
+
+**Python version errors:**
+```bash
+# Check Python version (requires 3.10+)
+python --version
+```
+
+**Module not found errors:**
+```bash
+# Ensure you're in the virtual environment
+source venv/bin/activate  # On Windows: venv\Scripts\activate
+pip install -r requirements.txt
+```
+
+**Port already in use:**
+```bash
+# Kill existing Python processes or change port in .env
+lsof -ti:8000 | xargs kill -9  # macOS/Linux
+taskkill /F /IM python.exe     # Windows
+```
+
+**Database locked:**
+```bash
+# Stop all agents and central server, then restart
+pkill -f python
+```
+
+**Redis connection errors (if using cache):**
+- Ensure Redis is running: `redis-server`
+- Or set `NOVA_CACHE_ENABLED=false` in `.env.central`
+
+---
+
+## 📝 Notes
 
 If you want all agents to share one database file, keep:
-`NOVA_MEMORY_DB_PATH=C:\Users\DAVID\.openclaw\memory\nova_memory_central.db`
+```
+NOVA_MEMORY_DB_PATH=C:\Users\DAVID\.openclaw\memory\nova_memory_central.db
+```
 
+---
+
+## 🤝 Contributing
+
+1. Fork the repository
+2. Create your feature branch (`git checkout -b feature/amazing`)
+3. Commit your changes (`git commit -m 'Add amazing feature'`)
+4. Push to the branch (`git push origin feature/amazing`)
+5. Open a Pull Request
+
+---
+
+## 📄 License
+
+See [LICENSE](LICENSE) for details.
+
+---
+
+<p align="center">
+  Built with ❤️ by <a href="https://github.com/mbugus94-lang">David Gakere</a>
+</p>
