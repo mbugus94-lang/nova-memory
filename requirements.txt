@@ -19,7 +19,7 @@ python-multipart>=0.0.21
 redis>=5.0.0
 
 # Data Processing
-numpy>=1.26.0,<2.0
+numpy>=1.26.0,<3.0
 
 # HTTP Client
 httpx>=0.28.1
