@@ -28,6 +28,6 @@ httpx>=0.28.1
 pillow>=11.2.0
 
 # Utilities
-python-dotenv>=1.0.0
+python-dotenv>=1.2.2
 certifi>=2025.1.31
 charset-normalizer>=3.4.6
