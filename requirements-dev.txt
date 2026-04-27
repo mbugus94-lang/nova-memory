@@ -36,7 +36,7 @@ memory-profiler>=0.61.0
 
 # Security checks
 bandit>=1.7.0
-safety>=3.0.0
+safety>=3.7.0
 
 # Pre-commit hooks
 pre-commit>=4.0.0
